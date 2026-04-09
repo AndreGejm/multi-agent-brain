@@ -9,21 +9,9 @@ import type {
   ValidateNoteRequest,
   ValidateNoteResponse
 } from "@multi-agent-brain/contracts";
+import { NOTE_REQUIRED_SECTIONS_BY_TYPE } from "../policy/note-template-policy.js";
 
 type ValidationSeverity = NoteValidationIssue["severity"];
-
-const NOTE_TYPE_SECTION_REQUIREMENTS: Record<NoteType, string[]> = {
-  decision: ["Context", "Decision", "Rationale", "Consequences"],
-  constraint: ["Constraint", "Scope", "Rationale", "Implications"],
-  bug: ["Summary", "Symptoms", "Reproduction", "Impact", "Status"],
-  investigation: ["Question", "Findings", "Evidence", "Next Steps"],
-  runbook: ["Purpose", "Preconditions", "Procedure", "Verification"],
-  architecture: ["Context", "Components", "Data Flow", "Constraints"],
-  glossary: ["Term", "Definition", "Related Terms"],
-  handoff: ["Context", "Current State", "Open Questions", "Next Steps"],
-  reference: ["Summary", "Details", "Sources"],
-  policy: ["Policy", "Scope", "Rules", "Exceptions"]
-};
 
 const CONTROLLED_TAG_REGISTRY = new Set<ControlledTag>([
   "domain/agent",
@@ -235,11 +223,25 @@ export class NoteValidationService {
     violations: NoteValidationIssue[]
   ): void {
     const headings = extractHeadings(body);
-    const requiredSections = NOTE_TYPE_SECTION_REQUIREMENTS[noteType] ?? [];
+    const sectionBodies = extractSectionBodies(body);
+    const requiredSections = NOTE_REQUIRED_SECTIONS_BY_TYPE[noteType] ?? [];
 
     for (const section of requiredSections) {
-      if (!headings.has(normalizeHeading(section))) {
+      const normalizedSection = normalizeHeading(section);
+      if (!headings.has(normalizedSection)) {
         violations.push(issue("body.sections", `Missing required section heading '${section}'.`, "error"));
+        continue;
+      }
+
+      const sectionBody = sectionBodies.get(normalizedSection);
+      if (isPlaceholderSectionBody(sectionBody)) {
+        violations.push(
+          issue(
+            "body.sections",
+            `Required section '${section}' contains placeholder content and must be filled with real draft content.`,
+            "error"
+          )
+        );
       }
     }
   }
@@ -388,6 +390,50 @@ function extractHeadings(markdown: string): Set<string> {
   );
 }
 
+function extractSectionBodies(markdown: string): Map<string, string> {
+  const sections = new Map<string, string>();
+  const matches = [...markdown.matchAll(/^\s{0,3}#{1,6}\s+(.+?)\s*$/gm)];
+
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
+    const heading = normalizeHeading(match[1].replace(/\s+#*$/, ""));
+    const bodyStart = match.index! + match[0].length;
+    const bodyEnd = index + 1 < matches.length
+      ? matches[index + 1].index!
+      : markdown.length;
+    sections.set(heading, markdown.slice(bodyStart, bodyEnd).trim());
+  }
+
+  return sections;
+}
+
+function isPlaceholderSectionBody(value: string | undefined): boolean {
+  if (!value) {
+    return true;
+  }
+
+  const normalized = value
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) {
+    return true;
+  }
+
+  return [
+    "tbd",
+    "tbd.",
+    "todo",
+    "todo.",
+    "to be determined",
+    "to be determined.",
+    "placeholder",
+    "placeholder."
+  ].includes(normalized);
+}
+
 function normalizeLineEndings(value: string): string {
   return value.replace(/\r\n/g, "\n").trim();
 }
@@ -397,6 +443,6 @@ function normalizePathString(value: string): string {
 }
 
 export const NOTE_VALIDATION_POLICY = {
-  requiredSectionsByType: NOTE_TYPE_SECTION_REQUIREMENTS,
+  requiredSectionsByType: NOTE_REQUIRED_SECTIONS_BY_TYPE,
   allowedTags: CONTROLLED_TAG_REGISTRY
 } as const;

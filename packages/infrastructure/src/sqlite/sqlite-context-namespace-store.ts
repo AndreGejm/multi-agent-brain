@@ -71,7 +71,22 @@ export class SqliteContextNamespaceStore implements ContextNamespaceStore {
         summary,
         scope,
         content_hash,
-        semantic_signature
+        semantic_signature,
+        authority_risk,
+        review_state,
+        review_required,
+        promotion_eligible,
+        submitted_by_actor_id,
+        submitted_by_actor_role,
+        submitted_at,
+        reviewed_by_actor_id,
+        reviewed_by_actor_role,
+        review_timestamp,
+        review_decision,
+        review_notes,
+        classification_hash,
+        policy_version,
+        template_id
       FROM notes
       WHERE ${whereClauses.join(" AND ")}
       ORDER BY corpus_id ASC, lifecycle_state ASC, updated_at DESC, note_id ASC
@@ -103,7 +118,22 @@ export class SqliteContextNamespaceStore implements ContextNamespaceStore {
         summary,
         scope,
         content_hash,
-        semantic_signature
+        semantic_signature,
+        authority_risk,
+        review_state,
+        review_required,
+        promotion_eligible,
+        submitted_by_actor_id,
+        submitted_by_actor_role,
+        submitted_at,
+        reviewed_by_actor_id,
+        reviewed_by_actor_role,
+        review_timestamp,
+        review_decision,
+        review_notes,
+        classification_hash,
+        policy_version,
+        template_id
       FROM notes
       WHERE note_id = ?
       LIMIT 1
@@ -143,7 +173,7 @@ function mapSqliteNoteRowToContextNode(row: SqliteNoteRow): ContextNode | undefi
       L1: false,
       L2: true
     },
-    promotionStatus: derivePromotionStatus(row.lifecycle_state),
+    promotionStatus: derivePromotionStatus(row),
     supersessionStatus: deriveSupersessionStatus(row),
     createdAt: row.updated_at,
     updatedAt: row.updated_at
@@ -176,13 +206,19 @@ function deriveSourceType(authorityState: ContextAuthorityState): ContextSourceT
 }
 
 function derivePromotionStatus(
-  lifecycleState: SqliteNoteRow["lifecycle_state"]
+  row: Pick<SqliteNoteRow, "lifecycle_state" | "review_state" | "promotion_eligible">
 ): ContextPromotionStatus {
-  switch (lifecycleState) {
+  switch (row.lifecycle_state) {
     case "promoted":
       return "promoted";
     case "draft":
     case "staged":
+      if (row.review_state === "rejected") {
+        return "rejected";
+      }
+      if (row.promotion_eligible === 1) {
+        return "promotable";
+      }
       return "pending_review";
     default:
       return "not_applicable";

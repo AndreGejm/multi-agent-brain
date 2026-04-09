@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { StagingDraftRecord, StagingNoteRepository } from "@multi-agent-brain/application";
 import type { CorpusId, NoteId } from "@multi-agent-brain/domain";
@@ -20,6 +20,55 @@ export class FileSystemStagingNoteRepository implements StagingNoteRepository {
 
   async updateDraft(note: StagingDraftRecord): Promise<StagingDraftRecord> {
     return this.writeDraft(note);
+  }
+
+  async archiveRejectedDraft(noteId: NoteId): Promise<StagingDraftRecord | null> {
+    return this.archiveHistoricalDraft(noteId, "rejected");
+  }
+
+  async archivePromotedDraft(noteId: NoteId): Promise<StagingDraftRecord | null> {
+    return this.archiveHistoricalDraft(noteId, "promoted");
+  }
+
+  private async archiveHistoricalDraft(
+    noteId: NoteId,
+    lifecycleState: "promoted" | "rejected"
+  ): Promise<StagingDraftRecord | null> {
+    const existing = await this.getById(noteId);
+    if (!existing) {
+      return null;
+    }
+
+    const archivedDraftPath = buildArchivedDraftPath(existing, lifecycleState);
+    const normalizedCurrentPath = normalizeNotePath(existing.draftPath, existing.corpusId);
+    const normalizedArchivedPath = normalizeNotePath(archivedDraftPath, existing.corpusId);
+    const updated: StagingDraftRecord = {
+      ...existing,
+      draftPath: archivedDraftPath,
+      lifecycleState,
+      frontmatter: {
+        ...existing.frontmatter,
+        status: lifecycleState
+      }
+    };
+    const persisted = await this.writeDraft(updated);
+
+    if (normalizedCurrentPath !== normalizedArchivedPath) {
+      const currentAbsolutePath = toAbsoluteNotePath(
+        this.rootPath,
+        normalizedCurrentPath,
+        existing.corpusId
+      );
+
+      try {
+        await unlink(currentAbsolutePath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+      }
+    }
+    return persisted;
   }
 
   async getById(noteId: NoteId): Promise<StagingDraftRecord | null> {
@@ -90,4 +139,21 @@ export class FileSystemStagingNoteRepository implements StagingNoteRepository {
       throw error;
     }
   }
+}
+
+function buildArchivedDraftPath(
+  note: StagingDraftRecord,
+  lifecycleState: "promoted" | "rejected"
+): string {
+  const normalized = normalizeNotePath(note.draftPath, note.corpusId);
+  const corpusPrefix = `${note.corpusId}/`;
+  const relativeWithinCorpus = normalized.startsWith(corpusPrefix)
+    ? normalized.slice(corpusPrefix.length)
+    : normalized;
+  const archiveSegment = lifecycleState === "promoted" ? "_promoted" : "_rejected";
+  const withoutArchivePrefix = relativeWithinCorpus.startsWith(`${archiveSegment}/`)
+    ? relativeWithinCorpus.slice(`${archiveSegment}/`.length)
+    : relativeWithinCorpus;
+
+  return `${note.corpusId}/${archiveSegment}/${withoutArchivePrefix}`;
 }

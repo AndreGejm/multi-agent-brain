@@ -14,11 +14,12 @@ This map is based on tracked repository content. It intentionally separates trac
 | `.env.example` | reference env template |
 | `apps/` | transport entrypoints |
 | `packages/` | layered TypeScript code |
+| `integrations/` | optional thin clients and integration bundles |
 | `docker/` | Dockerfile and compose profile |
 | `docs/` | canonical docs plus planning/history docs |
 | `runtimes/` | vendored Python coding runtime |
 | `tests/` | end-to-end test suite |
-| `scripts/` | currently only a placeholder README |
+| `scripts/` | local helper utilities such as the Tkinter review client |
 
 ## Major subsystems
 
@@ -27,6 +28,11 @@ This map is based on tracked repository content. It intentionally separates trac
 - `apps/brain-api`
 - `apps/brain-cli`
 - `apps/brain-mcp`
+
+### Thin operator frontends
+
+- `scripts/review-note-gui.py`
+- `integrations/obsidian/multi-agent-brain-review`
 
 ### Shared runtime layers
 
@@ -65,6 +71,8 @@ This map is based on tracked repository content. It intentionally separates trac
 
 - `docker/brain-api.Dockerfile`
 - `docker/compose.local.yml`
+- `docker/brain-mcp.Dockerfile`
+- `docker/brain-mcp-session-entrypoint.mjs`
 
 ## Storage surfaces
 
@@ -154,7 +162,7 @@ The tracked repo currently has no:
 - Kubernetes manifests
 - Terraform
 - migration directory
-- tracked bootstrap scripts in `scripts/`
+- tracked bootstrap or release automation scripts
 
 ## Local workspace residue note
 

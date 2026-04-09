@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { CanonicalNoteRecord } from "../ports/canonical-note-repository.js";
 import type { EmbeddingProvider } from "../ports/embedding-provider.js";
 import type { LexicalIndex } from "../ports/lexical-index.js";
@@ -13,6 +13,11 @@ import { AuditHistoryService } from "./audit-history-service.js";
 import { CanonicalNoteService } from "./canonical-note-service.js";
 import { ChunkingService } from "./chunking-service.js";
 import { NoteValidationService } from "./note-validation-service.js";
+import { findDraftGovernanceIdentityViolations } from "./draft-governance-identity-service.js";
+import {
+  buildNoteIdentity,
+  partitionPotentialDuplicates
+} from "./note-identity-service.js";
 import type { PromoteNoteRequest, PromoteNoteResponse, ServiceResult } from "@multi-agent-brain/contracts";
 import type { ChunkRecord, ControlledTag, NoteFrontmatter, NoteId } from "@multi-agent-brain/domain";
 
@@ -73,6 +78,91 @@ export class PromotionOrchestratorService {
         error: {
           code: "not_found",
           message: `Draft note '${request.draftNoteId}' was not found.`
+        }
+      };
+    }
+
+    const draftMetadata = await this.metadataControlStore.getNote(request.draftNoteId);
+    if (!draftMetadata) {
+      await this.recordAuditForRejection(request, [request.draftNoteId], [], "Draft metadata was not found.");
+      return {
+        ok: false,
+        error: {
+          code: "not_found",
+          message: `Draft metadata '${request.draftNoteId}' was not found.`
+        }
+      };
+    }
+
+    const governanceIdentityViolations = findDraftGovernanceIdentityViolations(draft, draftMetadata);
+    if (governanceIdentityViolations.length > 0) {
+      await this.recordAuditForRejection(
+        request,
+        [draft.noteId],
+        [],
+        "Promotion blocked because the draft governance identity no longer matches the immutable staging contract.",
+        {
+          violations: governanceIdentityViolations
+        }
+      );
+      return {
+        ok: false,
+        error: {
+          code: "validation_failed",
+          message: "Draft governance identity no longer matches the immutable staging contract.",
+          details: {
+            violations: governanceIdentityViolations
+          }
+        }
+      };
+    }
+
+    if (!draftMetadata.promotionEligible || draftMetadata.reviewState !== "promotion_ready") {
+      await this.recordAuditForRejection(
+        request,
+        [draft.noteId],
+        [],
+        "Promotion blocked until the draft has explicit review approval and promotion eligibility.",
+        {
+          reviewState: draftMetadata.reviewState,
+          promotionEligible: draftMetadata.promotionEligible
+        }
+      );
+      return {
+        ok: false,
+        error: {
+          code: "validation_failed",
+          message: "Draft note is not promotion eligible yet; complete the governed review workflow first.",
+          details: {
+            reviewState: draftMetadata.reviewState,
+            promotionEligible: draftMetadata.promotionEligible
+          }
+        }
+      };
+    }
+
+    if (!draftMetadata.reviewedRevision || draftMetadata.reviewedRevision !== draft.revision) {
+      await this.recordAuditForRejection(
+        request,
+        [draft.noteId],
+        [],
+        "Promotion blocked because the draft revision no longer matches the revision that was explicitly reviewed.",
+        {
+          reviewState: draftMetadata.reviewState,
+          reviewedRevision: draftMetadata.reviewedRevision,
+          actualDraftRevision: draft.revision
+        }
+      );
+      return {
+        ok: false,
+        error: {
+          code: "validation_failed",
+          message: "Draft note must be reviewed again before promotion because the latest reviewed revision no longer matches the draft revision.",
+          details: {
+            reviewState: draftMetadata.reviewState,
+            reviewedRevision: draftMetadata.reviewedRevision,
+            actualDraftRevision: draft.revision
+          }
         }
       };
     }
@@ -139,22 +229,21 @@ export class PromotionOrchestratorService {
       };
     }
 
-    const contentHash = hashText(draft.body);
-    const semanticSignature = buildSemanticSignature(
-      validation.normalizedFrontmatter.title,
-      validation.normalizedFrontmatter.summary,
-      validation.normalizedFrontmatter.scope
-    );
+    const noteIdentity = buildNoteIdentity({
+      noteType: validation.normalizedFrontmatter.type,
+      title: validation.normalizedFrontmatter.title,
+      summary: validation.normalizedFrontmatter.summary,
+      scope: validation.normalizedFrontmatter.scope,
+      body: draft.body
+    });
     const duplicates = await this.metadataControlStore.findPotentialDuplicates({
       corpusId: request.targetCorpus,
-      contentHash,
-      semanticSignature
+      contentHash: noteIdentity.contentHash,
+      semanticSignature: noteIdentity.semanticSignature
     });
-    const exactDuplicate = duplicates.find(
-      (duplicate) =>
-        duplicate.lifecycleState !== "superseded" &&
-        duplicate.contentHash === contentHash
-    );
+    const exactDuplicate = partitionPotentialDuplicates(duplicates, noteIdentity, {
+      excludeNoteIds: [request.draftNoteId]
+    }).exactMatches.find((duplicate) => duplicate.lifecycleState === "promoted");
 
     if (exactDuplicate) {
       await this.recordAuditForRejection(
@@ -394,12 +483,25 @@ export class PromotionOrchestratorService {
         queuedPromotion.payload.promotionDecision
       );
 
-      const promotedDraft = await this.stagingNoteRepository.updateDraft(
+      await this.stagingNoteRepository.updateDraft(
         queuedPromotion.payload.draftUpdate
       );
-      await this.metadataControlStore.upsertNote(
-        mapDraftMetadataRecord(promotedDraft)
+      const promotedDraft =
+        await this.stagingNoteRepository.archivePromotedDraft(
+          queuedPromotion.payload.draftUpdate.noteId
+        );
+      if (!promotedDraft) {
+        throw new Error(
+          `Promoted draft '${queuedPromotion.payload.draftUpdate.noteId}' could not be archived under staging history.`
+        );
+      }
+      const persistedDraftMetadata = await this.metadataControlStore.getNote(
+        promotedDraft.noteId
       );
+      await this.metadataControlStore.upsertNote({
+        ...(persistedDraftMetadata ?? {}),
+        ...mapDraftMetadataRecord(promotedDraft)
+      });
       await this.metadataControlStore.completePromotionOutboxEntry(outboxId);
 
       if (promotedCanonicalNote && this.contextRepresentationService) {
@@ -603,14 +705,6 @@ function currentDateIso(): string {
 
 function currentTimestampIso(): string {
   return new Date().toISOString();
-}
-
-function hashText(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex");
-}
-
-function buildSemanticSignature(title: string, summary: string, scope: string): string {
-  return hashText(`${title}\n${summary}\n${scope}`);
 }
 
 function buildEmbeddingText(chunk: ChunkRecord): string {

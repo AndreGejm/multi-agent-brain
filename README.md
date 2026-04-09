@@ -15,6 +15,9 @@ The tracked repository currently implements:
 - bounded retrieval, direct context-packet assembly, decision-summary generation, namespace tree listing, and namespace node reads
 - actor-registry authorization with static credentials, centrally issued tokens, revocation support, and operator auth-control surfaces
 - a vendored Python runtime in `runtimes/local_experts` that handles coding tasks through a Node-to-Python bridge
+- two thin operator review frontends over the governed review contract:
+  - a Windows Tkinter reviewer in `scripts/review-note-gui.py`
+  - a local Obsidian plugin in `integrations/obsidian/multi-agent-brain-review`
 
 The tracked repository does not currently include:
 
@@ -132,6 +135,7 @@ MAB_LOG_LEVEL=info
 Why this works:
 
 - draft creation has a deterministic fallback path when no drafting provider is configured
+- draft ingress rejects placeholder-only required sections, so staging drafts still need real section content even in no-model mode
 - missing Qdrant degrades vector retrieval instead of crashing the runtime
 - the test suite repeatedly uses the `hash` / `heuristic` / `disabled` / `local` provider mix
 
@@ -148,6 +152,33 @@ Entrypoints:
 - HTTP API: `corepack pnpm api`
 - CLI: `corepack pnpm cli -- <command>`
 - MCP server: `corepack pnpm mcp`
+
+### Review frontends
+
+Thin operator review frontends now exist for the governed review queue:
+
+- Windows Tkinter reviewer: `scripts/review-note-gui.py`
+- local Obsidian plugin: `integrations/obsidian/multi-agent-brain-review`
+
+These frontends intentionally stay thin:
+
+- they call `list-review-queue`, `read-review-note`, `accept-note`, and `reject-note`
+- they do not call low-level review or promotion commands directly
+- they do not move files directly
+
+Tkinter reviewer notes:
+
+- Windows-only local reviewer in the supported documentation set
+- requires a built `brain-cli`
+- expects a working `node` executable unless you override it with `MAB_REVIEW_NODE_EXECUTABLE`
+- optionally reads `MAB_REVIEW_REPO_ROOT` if the repo root should not be inferred from the script location
+
+Obsidian plugin notes:
+
+- desktop-only
+- must be copied into an Obsidian vault under `.obsidian/plugins/multi-agent-brain-review`
+- requires `Repo root` to be set in plugin settings; no machine-specific default path is baked into the plugin
+- expects a working `node` executable unless you override it in plugin settings
 
 ## Run with Docker
 
@@ -317,7 +348,7 @@ validation step, and MCP client snippet.
 - health: `GET /health/live`, `GET /health/ready`
 - system: auth status, issued-token listing, token issuance, token introspection, token revocation, freshness, version
 - context: search, tree, node, packet, decision summary
-- governance: drafts, refresh drafts, validate, promote, import resource, history query, session archives
+- governance: classify ingress, drafts, draft review, review queue/read/accept/reject, refresh drafts, validate, promote, import resource, history query, session archives
 - coding: `POST /v1/coding/execute`
 
 ### CLI
@@ -335,7 +366,13 @@ validation step, and MCP client snippet.
 - `read-context-node`
 - `get-context-packet`
 - `fetch-decision-summary`
+- `classify-note-ingress`
 - `draft-note`
+- `review-draft-note`
+- `list-review-queue`
+- `read-review-note`
+- `accept-note`
+- `reject-note`
 - `create-refresh-draft`
 - `create-refresh-drafts`
 - `validate-note`
@@ -343,6 +380,46 @@ validation step, and MCP client snippet.
 - `import-resource`
 - `query-history`
 - `create-session-archive`
+
+`classify-note-ingress` is the governed preflight surface for note creation.
+It can now infer `noteType` and `targetCorpus` when a candidate carries clear
+signals, but those fields still remain explicit hints rather than client-held
+authority. `draft-note` now recomputes the same ingress contract server-side and
+rejects
+current-state-like drafts that only present session-synthesis evidence. Draft
+ingress now also persists structured source-basis and supporting-source
+provenance into SQLite for later review, plus duplicate identity hashes used to
+block exact and semantic duplicate drafts before they add staging clutter.
+Admitted drafts now also persist the governed normalized scope string and prefer
+the candidate summary over the raw source prompt when populating draft
+frontmatter, so stored metadata matches the ingress contract more closely.
+The runtime now also makes note-worthiness decisions before staging: low-
+information session residue can be downgraded to `session_only`, raw
+transcript-like captures are rejected outright, and vague high-risk candidates
+are forced through `rewrite_required` until they carry a specific scope and
+enough durable detail.
+Only `classify-note-ingress` gained that inference behavior in beta; `draft-note`
+still expects an explicit governed draft request and uses server-side
+reclassification to enforce the same policy contract.
+Once a draft is admitted, its governance identity is treated as immutable:
+runtime review and promotion now reject staged drafts whose note type, corpus,
+scope, current-state intent, or admitted governance basis drift after admission.
+`review-draft-note` persists explicit review state and promotion eligibility for
+staged drafts. High-risk drafts must advance through `approve_draft` before
+`set_promotion_ready`, and promotion only succeeds when the latest draft
+revision still matches the reviewed revision.
+
+For thin operator frontends, the preferred review contract is now:
+
+- `list-review-queue`
+- `read-review-note`
+- `accept-note`
+- `reject-note`
+
+These commands keep the UI thin while the orchestrator owns state transitions,
+archive movement, promotion, indexing, and verification reporting. A minimal
+Windows Tkinter reviewer using only that contract now lives at
+`scripts/review-note-gui.py`.
 
 See `docs/reference/interfaces.md` for the canonical interface list.
 
@@ -379,11 +456,12 @@ python3 -m pytest runtimes/local_experts/tests/test_safety_gate.py -v # macOS/Li
 ```text
 apps/          transport entrypoints
 packages/      layered TypeScript modules
+integrations/  optional thin clients such as the Obsidian review plugin
 docker/        Dockerfile and local compose profile
 docs/          canonical docs plus planning/history docs
 runtimes/      vendored Python coding runtime
 tests/         end-to-end transport and service tests
-scripts/       currently only a placeholder README
+scripts/       local helper utilities, currently including the Tkinter review client
 ```
 
 Full map: `docs/reference/repo-map.md`
@@ -401,6 +479,8 @@ Full map: `docs/reference/repo-map.md`
 - `docs/reference/env-vars.md`
 - `docs/reference/repo-map.md`
 - `docs/agents/ai-navigation-guide.md`
+- `scripts/README.md`
+- `integrations/obsidian/multi-agent-brain-review/README.md`
 
 `docs/planning/` is useful for history and rollout context, but it is not the primary source of truth for the current runtime.
 
@@ -434,4 +514,4 @@ Start here if you are using an automated reviewer or coding agent:
 
 ### TODO gaps
 
-- If the repo adds a tracked Docker MCP profile, dotenv loading, CI, deployment descriptors, or migration tooling, update this README and the setup/reference docs together
+- If the repo adds tracked CI, deployment descriptors, dotenv loading, or migration tooling, update this README and the setup/reference docs together

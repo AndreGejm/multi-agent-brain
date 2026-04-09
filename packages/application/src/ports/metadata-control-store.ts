@@ -5,10 +5,15 @@ import type {
   NoteLifecycleState,
   NoteId,
   ControlledTag,
-  NoteType
+  NoteType,
+  DraftReviewDecision,
+  DraftReviewState,
+  NoteAuthorityRisk,
+  NoteSourceBasis
 } from "@multi-agent-brain/domain";
 import type {
   ActorContext,
+  ProvenanceRef,
   QueryHistoryRequest,
   QueryHistoryResponse
 } from "@multi-agent-brain/contracts";
@@ -31,6 +36,47 @@ export interface MetadataNoteRecord {
   tags?: ControlledTag[];
   contentHash?: string;
   semanticSignature?: string;
+  authorityRisk?: NoteAuthorityRisk;
+  reviewState?: DraftReviewState;
+  reviewRequired?: boolean;
+  promotionEligible?: boolean;
+  submittedByActorId?: string;
+  submittedByActorRole?: ActorContext["actorRole"];
+  submittedAt?: string;
+  reviewedByActorId?: string;
+  reviewedByActorRole?: ActorContext["actorRole"];
+  reviewTimestamp?: string;
+  reviewedRevision?: string;
+  reviewDecision?: DraftReviewDecision;
+  reviewNotes?: string;
+  classificationHash?: string;
+  policyVersion?: string;
+  templateId?: string;
+}
+
+export interface NoteProvenanceRecord {
+  noteId: NoteId;
+  ordinal: number;
+  sourceBasis: NoteSourceBasis;
+  sourceNoteId?: ProvenanceRef["noteId"];
+  sourceNotePath?: ProvenanceRef["notePath"];
+  headingPath?: ProvenanceRef["headingPath"];
+  chunkId?: ProvenanceRef["chunkId"];
+  excerpt?: ProvenanceRef["excerpt"];
+  recordedAt: string;
+}
+
+export interface MetadataNoteReviewUpdate {
+  noteId: NoteId;
+  reviewState: DraftReviewState;
+  reviewRequired: boolean;
+  promotionEligible: boolean;
+  reviewedByActorId?: string;
+  reviewedByActorRole?: ActorContext["actorRole"];
+  reviewTimestamp?: string;
+  reviewedRevision?: string;
+  reviewDecision?: DraftReviewDecision;
+  reviewNotes?: string;
 }
 
 export interface PromotionDecisionRecord {
@@ -105,6 +151,10 @@ export interface TemporalValidityReport extends TemporalValiditySummary {
 
 export interface MetadataControlStore {
   upsertNote(note: MetadataNoteRecord): Promise<void>;
+  getNote(noteId: NoteId): Promise<MetadataNoteRecord | null>;
+  updateNoteReview(note: MetadataNoteReviewUpdate): Promise<MetadataNoteRecord | null>;
+  replaceNoteProvenance(noteId: NoteId, provenance: NoteProvenanceRecord[]): Promise<void>;
+  getNoteProvenance(noteId: NoteId): Promise<NoteProvenanceRecord[]>;
   upsertChunks(chunks: ChunkRecord[]): Promise<void>;
   removeChunksByNoteId(noteId: NoteId): Promise<void>;
   getChunksByIds(chunkIds: ChunkId[]): Promise<ChunkRecord[]>;

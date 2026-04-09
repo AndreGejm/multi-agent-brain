@@ -1,6 +1,8 @@
 import type {
+  NoteIngressAction,
   NoteFrontmatter,
   NoteLifecycleState,
+  NoteSourceBasis,
   NoteType,
   ProvenanceRef,
   CorpusId
@@ -16,6 +18,13 @@ export interface DraftNoteRequest {
   supportingSources: ProvenanceRef[];
   frontmatterOverrides?: Partial<NoteFrontmatter>;
   bodyHints?: string[];
+  candidateSummary?: string;
+  sourceBasis?: NoteSourceBasis[];
+  classification?: {
+    classificationHash: string;
+    policyVersion: string;
+    action?: NoteIngressAction;
+  };
 }
 
 export interface DraftNoteResponse {

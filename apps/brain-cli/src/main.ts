@@ -4,20 +4,26 @@ import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 import type {
+  AcceptNoteRequest,
   ActorContext,
   ActorRole,
   AssembleContextPacketRequest,
+  ClassifyNoteIngressRequest,
   CreateSessionArchiveRequest,
   CreateRefreshDraftBatchRequest,
-  CreateRefreshDraftRequest,
-  DraftNoteRequest,
-  ExecuteCodingTaskRequest,
-  GetDecisionSummaryRequest,
+	CreateRefreshDraftRequest,
+	DraftNoteRequest,
+	ExecuteCodingTaskRequest,
+	GetDecisionSummaryRequest,
   ImportResourceRequest,
+  ListReviewQueueRequest,
   ListContextTreeRequest,
   PromoteNoteRequest,
   QueryHistoryRequest,
+  ReadReviewNoteRequest,
   ReadContextNodeRequest,
+  RejectNoteRequest,
+  ReviewDraftNoteRequest,
   RetrieveContextRequest,
   TransportKind,
   ValidateNoteRequest
@@ -51,7 +57,13 @@ type CommandName =
   | "read-context-node"
   | "get-context-packet"
   | "fetch-decision-summary"
+  | "classify-note-ingress"
   | "draft-note"
+  | "review-draft-note"
+  | "list-review-queue"
+  | "read-review-note"
+  | "accept-note"
+  | "reject-note"
   | "create-refresh-draft"
   | "create-refresh-drafts"
   | "validate-note"
@@ -93,7 +105,13 @@ const COMMANDS: ReadonlyArray<CommandName> = [
   "read-context-node",
   "get-context-packet",
   "fetch-decision-summary",
+  "classify-note-ingress",
   "draft-note",
+  "review-draft-note",
+  "list-review-queue",
+  "read-review-note",
+  "accept-note",
+  "reject-note",
   "create-refresh-draft",
   "create-refresh-drafts",
   "validate-note",
@@ -110,7 +128,13 @@ const DEFAULT_ACTOR_ROLE: Record<RoutedCommandName, ActorRole> = {
   "read-context-node": "retrieval",
   "get-context-packet": "retrieval",
   "fetch-decision-summary": "retrieval",
+  "classify-note-ingress": "writer",
   "draft-note": "writer",
+  "review-draft-note": "operator",
+  "list-review-queue": "operator",
+  "read-review-note": "operator",
+  "accept-note": "operator",
+  "reject-note": "operator",
   "create-refresh-draft": "operator",
   "create-refresh-drafts": "operator",
   "validate-note": "orchestrator",
@@ -140,7 +164,13 @@ const COMMAND_NAMES: ReadonlyArray<string> = [
   "read_context_node",
   "get_context_packet",
   "fetch_decision_summary",
+  "classify_note_ingress",
   "draft_note",
+  "review_draft_note",
+  "list_review_queue",
+  "read_review_note",
+  "accept_note",
+  "reject_note",
   "create_refresh_draft",
   "create_refresh_drafts",
   "validate_note",
@@ -420,9 +450,33 @@ async function runCommand(
       return container.orchestrator.fetchDecisionSummary(
         request as unknown as GetDecisionSummaryRequest
       );
+    case "classify-note-ingress":
+      return container.orchestrator.classifyNoteIngress(
+        request as unknown as ClassifyNoteIngressRequest
+      );
     case "draft-note":
       return container.orchestrator.draftNote(
         request as unknown as DraftNoteRequest
+      );
+    case "review-draft-note":
+      return container.orchestrator.reviewDraftNote(
+        request as unknown as ReviewDraftNoteRequest
+      );
+    case "list-review-queue":
+      return container.orchestrator.listReviewQueue(
+        request as unknown as ListReviewQueueRequest
+      );
+    case "read-review-note":
+      return container.orchestrator.readReviewNote(
+        request as unknown as ReadReviewNoteRequest
+      );
+    case "accept-note":
+      return container.orchestrator.acceptNote(
+        request as unknown as AcceptNoteRequest
+      );
+    case "reject-note":
+      return container.orchestrator.rejectNote(
+        request as unknown as RejectNoteRequest
       );
     case "create-refresh-draft":
       return container.orchestrator.createRefreshDraft(
@@ -696,7 +750,13 @@ Commands:
   read-context-node  Read a namespace node through the shared context namespace service
   get-context-packet  Assemble a bounded packet directly from ranked candidates
   fetch-decision-summary  Retrieve a bounded decision-focused packet
+  classify-note-ingress  Classify a note candidate against the governed ingress contract
   draft-note       Create a staging draft through stagingDraftService
+  review-draft-note  Record an explicit governed review decision for a staging draft
+  list-review-queue  List the thin-frontend review queue through the orchestrator
+  read-review-note  Read one staged review note with body and governed metadata
+  accept-note      Accept a staged note through the orchestrator-owned review and promotion flow
+  reject-note      Reject and archive a staged note through the orchestrator-owned review flow
   create-refresh-draft  Create a governed refresh draft for an existing current-state note
   create-refresh-drafts  Create a bounded batch of governed refresh drafts from freshness candidates
   validate-note    Run deterministic schema validation
@@ -712,6 +772,11 @@ Notes:
   - freshness-status accepts optional JSON input with asOf, expiringWithinDays, corpusId, and limitPerCategory.
   - create-refresh-draft expects JSON input with noteId and optional asOf, expiringWithinDays, or bodyHints.
   - create-refresh-drafts accepts optional JSON input with asOf, expiringWithinDays, corpusId, limitPerCategory, maxDrafts, sourceStates, and bodyHints.
+  - review-draft-note expects JSON input with draftNoteId, decision, and optional reviewNotes.
+  - list-review-queue accepts optional JSON input with targetCorpus and includeRejected.
+  - read-review-note expects JSON input with draftNoteId.
+  - accept-note expects JSON input with draftNoteId.
+  - reject-note expects JSON input with draftNoteId and optional reviewNotes.
   - create-session-archive expects JSON input with sessionId and a non-empty messages array of { role, content } objects.
   - issue-auth-token expects JSON input with actorId, actorRole, and optional source, allowedTransports, allowedCommands, allowedAdminActions, validFrom, validUntil, or ttlMinutes.
   - revoke-auth-token expects JSON input with tokenId or a valid issued token, and optional reason.

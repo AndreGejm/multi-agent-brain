@@ -4,13 +4,16 @@ import type {
   CanonicalNoteService,
   CanonicalNoteRepository,
   ChunkingService,
+  DraftReviewService,
   DraftingProvider,
   EmbeddingProvider,
   LexicalIndex,
   LocalReasoningProvider,
   MetadataControlStore,
+  NoteIngressService,
   NoteValidationService,
   PromotionOrchestratorService,
+  ReviewOperatorService,
   RetrieveContextService,
   RerankerProvider,
   SessionArchiveStore,
@@ -27,10 +30,13 @@ import {
   ContextRepresentationService as ConcreteContextRepresentationService,
   ContextPacketService as ConcreteContextPacketService,
   DecisionSummaryService as ConcreteDecisionSummaryService,
+  DraftReviewService as ConcreteDraftReviewService,
   ImportOrchestrationService as ConcreteImportOrchestrationService,
   HierarchicalRetrievalService as ConcreteHierarchicalRetrievalService,
   NoteValidationService as ConcreteNoteValidationService,
+  NoteIngressService as ConcreteNoteIngressService,
   PromotionOrchestratorService as ConcretePromotionOrchestratorService,
+  ReviewOperatorService as ConcreteReviewOperatorService,
   RetrieveContextService as ConcreteRetrieveContextService,
   SessionArchiveService as ConcreteSessionArchiveService,
   StagingDraftService as ConcreteStagingDraftService,
@@ -92,8 +98,11 @@ export interface ServicePortRegistry {
 export interface ServiceRegistry {
   auditHistoryService: AuditHistoryService;
   noteValidationService: NoteValidationService;
+  noteIngressService: NoteIngressService;
   canonicalNoteService: CanonicalNoteService;
   stagingDraftService: StagingDraftService;
+  draftReviewService: DraftReviewService;
+  reviewOperatorService: ReviewOperatorService;
   chunkingService: ChunkingService;
   promotionOrchestratorService: PromotionOrchestratorService;
   retrieveContextService: RetrieveContextService;
@@ -180,6 +189,7 @@ export function buildServiceContainer(
     roleProviderRegistry.getRerankerProvider("reranker_primary");
 
   const noteValidationService = new ConcreteNoteValidationService();
+  const noteIngressService = new ConcreteNoteIngressService();
   const auditHistoryService = new ConcreteAuditHistoryService(auditLog);
   const canonicalNoteService = new ConcreteCanonicalNoteService(
     canonicalNoteRepository,
@@ -189,7 +199,12 @@ export function buildServiceContainer(
     stagingNoteRepository,
     metadataControlStore,
     noteValidationService,
+    noteIngressService,
     draftingProvider
+  );
+  const draftReviewService = new ConcreteDraftReviewService(
+    stagingNoteRepository,
+    metadataControlStore
   );
   const chunkingService = new ConcreteChunkingService();
   const contextRepresentationService = new ConcreteContextRepresentationService(
@@ -216,6 +231,12 @@ export function buildServiceContainer(
     vectorIndex,
     embeddingProvider,
     contextRepresentationService
+  );
+  const reviewOperatorService = new ConcreteReviewOperatorService(
+    stagingNoteRepository,
+    metadataControlStore,
+    draftReviewService,
+    promotionOrchestratorService
   );
   const retrieveContextService = new ConcreteRetrieveContextService({
     lexicalIndex,
@@ -267,6 +288,9 @@ export function buildServiceContainer(
     ),
     new BrainMemoryController(
       stagingDraftService,
+      draftReviewService,
+      reviewOperatorService,
+      noteIngressService,
       noteValidationService,
       promotionOrchestratorService,
       sessionArchiveService,
@@ -318,8 +342,11 @@ export function buildServiceContainer(
     services: {
       auditHistoryService,
       noteValidationService,
+      noteIngressService,
       canonicalNoteService,
       stagingDraftService,
+      draftReviewService,
+      reviewOperatorService,
       chunkingService,
       promotionOrchestratorService,
       retrieveContextService,

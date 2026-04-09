@@ -1,0 +1,10 @@
+{
+  "id": "multi-agent-brain-review",
+  "name": "Multi-Agent-Brain Review Queue",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Thin Obsidian review shell for governed Multi-Agent-Brain note review.",
+  "author": "OpenAI Codex",
+  "authorUrl": "https://openai.com",
+  "isDesktopOnly": true
+}

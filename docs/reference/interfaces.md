@@ -34,11 +34,17 @@ Source of truth: `apps/brain-api/src/server.ts`
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/v1/notes/drafts` | create staging drafts |
+| `POST` | `/v1/notes/classify-ingress` | classify a note candidate against the governed ingress contract, including note-type-aware provenance checks |
+| `POST` | `/v1/notes/drafts` | create staging drafts; rejects placeholder-only required sections, persists structured provenance (including chunk-level refs), normalizes governed scope/summary metadata, blocks governed duplicate drafts, and rechecks ingress server-side |
+| `POST` | `/v1/notes/drafts/review` | record explicit review state, reviewed revision, and promotion eligibility for a staging draft |
+| `POST` | `/v1/review/queue` | list the thin-frontend review queue |
+| `POST` | `/v1/review/note` | read one staged review payload including body and governed metadata |
+| `POST` | `/v1/review/accept` | accept a staged review note through the orchestrator-owned review and promotion flow |
+| `POST` | `/v1/review/reject` | reject and archive a staged review note through the orchestrator-owned review flow |
 | `POST` | `/v1/system/freshness/refresh-draft` | create one governed refresh draft |
 | `POST` | `/v1/system/freshness/refresh-drafts` | create a bounded refresh-draft batch |
 | `POST` | `/v1/notes/validate` | deterministic validation |
-| `POST` | `/v1/notes/promote` | promote a staging draft |
+| `POST` | `/v1/notes/promote` | promote a staging draft that is already `promotion_ready` and still matches the reviewed revision |
 | `POST` | `/v1/maintenance/import-resource` | record an import job |
 | `POST` | `/v1/history/query` | bounded audit history query |
 | `POST` | `/v1/history/session-archives` | create session archives |
@@ -68,7 +74,13 @@ Source of truth: `apps/brain-cli/src/main.ts`
 - `read-context-node`
 - `get-context-packet`
 - `fetch-decision-summary`
+- `classify-note-ingress`
 - `draft-note`
+- `review-draft-note`
+- `list-review-queue`
+- `read-review-note`
+- `accept-note`
+- `reject-note`
 - `create-refresh-draft`
 - `create-refresh-drafts`
 - `validate-note`
@@ -118,15 +130,30 @@ Source of truth:
 - `list_context_tree`
 - `read_context_node`
 - `get_context_packet`
+- `classify_note_ingress`
 - `create_refresh_draft`
 - `create_refresh_drafts`
 - `import_resource`
 - `draft_note`
+- `review_draft_note`
+- `list_review_queue`
+- `read_review_note`
+- `accept_note`
+- `reject_note`
 - `fetch_decision_summary`
 - `validate_note`
 - `promote_note`
 - `query_history`
 - `create_session_archive`
+
+Current ingress contract nuance:
+
+- `classify_note_ingress` is the authoritative preflight surface for note creation
+- `classify_note_ingress` may infer `noteType` and `targetCorpus` from strong candidate signals, but caller-provided values remain hints that the runtime can override or downgrade
+- `draft_note` still reclassifies server-side and may return governed `session_only`, `rewrite_required`, `merge_candidate`, or `reject` outcomes even when a caller skips preflight
+- `draft_note` still requires an explicit governed draft request in beta; inference is limited to the classification surface so write semantics do not widen accidentally
+- low-information session residue and transcript-like captures are intentionally blocked from becoming durable staging drafts
+- thin review frontends should use `list_review_queue`, `read_review_note`, `accept_note`, and `reject_note` instead of stitching together low-level review and promotion commands themselves
 
 ## Internal integration surfaces
 
@@ -173,6 +200,9 @@ Source of truth:
 ### Verified facts
 
 - Every interface listed here is grounded in tracked adapter code or tracked contracts
+- `draft-note` is no longer a purely structural ingress surface; it recomputes the governed note-ingress contract before staging a draft, persists structured provenance for source basis plus supporting note refs (including `chunkId` when present), normalizes the admitted scope, prefers `candidateSummary` for stored summary metadata, and returns `merge_candidate` ingress failures when a duplicate draft identity already exists in the same corpus
+- draft review is now explicit runtime metadata, staged draft governance identity is immutable after admission, and `promote-note` only accepts drafts that have been marked `promotion_ready` for the latest reviewed revision
+- the first-class review contract now includes queue, read, accept, and reject/archive flows so thin frontends do not need to macro `review-draft-note` plus `promote-note`
 
 ### Assumptions
 

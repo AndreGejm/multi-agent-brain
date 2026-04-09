@@ -30,6 +30,434 @@ test("retrieval actors cannot create staging drafts", async (t) => {
   assert.equal(result.error.code, "forbidden");
 });
 
+test("note ingress classification returns a governed contract for high-risk policy drafts", async (t) => {
+  const { container } = await createHarness(t);
+
+  const result = container.services.noteIngressService.classify({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "Governed Ingress Policy",
+    sourcePrompt: "Store the governed ingress policy draft for beta rollout.",
+    supportingSources: [],
+    bodyHints: ["Policy drafts should require review before promotion."],
+    scopeHint: "governance/note-ingress",
+    sourceBasis: ["user_instruction", "session_synthesis"]
+  });
+
+  assert.equal(result.contractVersion, "note-ingress.v1");
+  assert.equal(result.action, "draft_candidate");
+  assert.equal(result.authorityRisk, "high");
+  assert.equal(result.reviewRequired, true);
+  assert.equal(result.promotionEligible, false);
+  assert.equal(result.requiredTemplate, "policy.v1");
+  assert.deepEqual(result.requiredSections, ["Policy", "Scope", "Rules", "Exceptions"]);
+  assert.ok(result.classificationHash.length > 0);
+});
+
+test("note ingress can infer policy type and general-notes corpus when the candidate is clearly governance-focused", async (t) => {
+  const { container } = await createHarness(t);
+
+  const result = container.services.noteIngressService.classify({
+    actor: actor("writer"),
+    title: "Governed Review Policy",
+    sourcePrompt: "Store the governed policy for draft review boundaries and promotion gates.",
+    supportingSources: [],
+    bodyHints: ["Policy drafts should require explicit review before promotion."],
+    scopeHint: "governance/review-policy",
+    sourceBasis: ["user_instruction", "session_synthesis"]
+  });
+
+  assert.equal(result.noteType, "policy");
+  assert.equal(result.targetCorpus, "general_notes");
+  assert.equal(result.action, "draft_candidate");
+  assert.equal(result.requiredTemplate, "policy.v1");
+  assert.equal(result.classificationConfidence, "high");
+});
+
+test("note ingress can infer architecture type and context-brain corpus from repo-inspection evidence", async (t) => {
+  const { container } = await createHarness(t);
+
+  const result = container.services.noteIngressService.classify({
+    actor: actor("writer"),
+    title: "Retrieval Architecture Boundaries",
+    sourcePrompt: "Capture the repository architecture for retrieval layering and packet assembly.",
+    supportingSources: [],
+    candidateSummary: "Repository inspection shows how retrieval architecture and packet assembly are layered.",
+    scopeHint: "architecture/retrieval-boundaries",
+    sourceBasis: ["repo_inspection"]
+  });
+
+  assert.equal(result.noteType, "architecture");
+  assert.equal(result.targetCorpus, "context_brain");
+  assert.equal(result.action, "draft_candidate");
+  assert.equal(result.requiredTemplate, "architecture.v1");
+});
+
+test("note ingress downgrades low-information session residue to session_only instead of durable staging", async (t) => {
+  const { container } = await createHarness(t);
+
+  const result = container.services.noteIngressService.classify({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "handoff",
+    title: "Notes",
+    sourcePrompt: "Remember this conversation for later.",
+    supportingSources: [],
+    sourceBasis: ["session_synthesis"]
+  });
+
+  assert.equal(result.action, "session_only");
+  assert.equal(result.classificationConfidence, "low");
+  assert.ok(
+    result.rejectionReasons.some((reason) => /session-only|durable/i.test(reason))
+  );
+});
+
+test("note ingress rejects raw transcript-like residue instead of storing it as a durable note", async (t) => {
+  const { container } = await createHarness(t);
+
+  const result = container.services.noteIngressService.classify({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "reference",
+    title: "Chat Transcript",
+    sourcePrompt: "Store this raw transcript from the chat for later.",
+    supportingSources: [],
+    candidateSummary: "Raw transcript from this chat session for temporary recall.",
+    sourceBasis: ["session_synthesis"]
+  });
+
+  assert.equal(result.action, "reject");
+  assert.equal(result.classificationConfidence, "low");
+  assert.ok(
+    result.rejectionReasons.some((reason) => /raw transcript|durable note/i.test(reason))
+  );
+});
+
+test("note ingress rewrites vague high-risk candidates whose title and evidence are too weak", async (t) => {
+  const { container } = await createHarness(t);
+
+  const result = container.services.noteIngressService.classify({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "architecture",
+    title: "Update",
+    sourcePrompt: "Some thoughts.",
+    supportingSources: [],
+    sourceBasis: ["repo_inspection"]
+  });
+
+  assert.equal(result.action, "rewrite_required");
+  assert.equal(result.classificationConfidence, "low");
+  assert.ok(
+    result.rejectionReasons.some((reason) => /clearer|durable|scope/i.test(reason))
+  );
+});
+
+test("high-risk drafts persist explicit review metadata and block promotion until reviewed", async (t) => {
+  const { container } = await createHarness(t);
+
+  const draft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "Governed Review Gate",
+    sourcePrompt: "Store the beta review-gating policy as a governed draft.",
+    supportingSources: [],
+    sourceBasis: ["user_instruction"],
+    frontmatterOverrides: {
+      scope: "governance/review-gate"
+    }
+  });
+
+  assert.equal(draft.ok, true);
+
+  const noteMetadata = await container.ports.metadataControlStore.getNote(
+    draft.data.draftNoteId
+  );
+
+  assert.ok(noteMetadata);
+  assert.equal(noteMetadata.reviewState, "unreviewed");
+  assert.equal(noteMetadata.reviewRequired, true);
+  assert.equal(noteMetadata.promotionEligible, false);
+  assert.equal(noteMetadata.authorityRisk, "high");
+
+  const promoted = await container.services.promotionOrchestratorService.promoteDraft({
+    actor: actor("orchestrator"),
+    draftNoteId: draft.data.draftNoteId,
+    targetCorpus: "general_notes",
+    promoteAsCurrentState: false
+  });
+
+  assert.equal(promoted.ok, false);
+  assert.equal(promoted.error.code, "validation_failed");
+  assert.match(promoted.error.message, /review|promotion eligible/i);
+});
+
+test("review workflow can mark a draft promotion-ready and unblock promotion", async (t) => {
+  const { container } = await createHarness(t);
+
+  const draft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "Governed Promotion Readiness",
+    sourcePrompt: "Store the promotion-readiness workflow as a governed draft.",
+    supportingSources: [],
+    sourceBasis: ["user_instruction"],
+    frontmatterOverrides: {
+      scope: "governance/promotion-ready"
+    }
+  });
+
+  assert.equal(draft.ok, true);
+
+  const approval = await container.services.draftReviewService.reviewDraft({
+    actor: actor("operator"),
+    draftNoteId: draft.data.draftNoteId,
+    decision: "approve_draft",
+    reviewNotes: "Initial governed review completed."
+  });
+
+  assert.equal(approval.ok, true);
+  assert.equal(approval.data.reviewState, "approved_draft");
+  assert.equal(approval.data.promotionEligible, false);
+
+  const review = await container.services.draftReviewService.reviewDraft({
+    actor: actor("operator"),
+    draftNoteId: draft.data.draftNoteId,
+    decision: "set_promotion_ready",
+    reviewNotes: "Reviewed for beta rollout and cleared for promotion."
+  });
+
+  assert.equal(review.ok, true);
+  assert.equal(review.data.reviewState, "promotion_ready");
+  assert.equal(review.data.promotionEligible, true);
+
+  const noteMetadata = await container.ports.metadataControlStore.getNote(
+    draft.data.draftNoteId
+  );
+
+  assert.ok(noteMetadata);
+  assert.equal(noteMetadata.reviewState, "promotion_ready");
+  assert.equal(noteMetadata.promotionEligible, true);
+  assert.equal(noteMetadata.reviewedByActorRole, "operator");
+
+  const promoted = await container.services.promotionOrchestratorService.promoteDraft({
+    actor: actor("orchestrator"),
+    draftNoteId: draft.data.draftNoteId,
+    targetCorpus: "general_notes",
+    promoteAsCurrentState: false
+  });
+
+  assert.equal(promoted.ok, true);
+});
+
+test("review queue recovers legacy on-disk draft files that are missing governed metadata", async (t) => {
+  const { container, root } = await createHarness(t);
+  const noteId = randomUUID();
+  const draftPath = path.join(
+    root,
+    "vault",
+    "staging",
+    "general_notes",
+    "legacy-queue-recovery.md"
+  );
+
+  await fsMkdir(path.dirname(draftPath), { recursive: true });
+  await fsWriteFile(
+    draftPath,
+    [
+      "---",
+      `noteId: "${noteId}"`,
+      'title: "Legacy Queue Recovery"',
+      'project: "multi-agent-brain"',
+      'type: "handoff"',
+      'status: "draft"',
+      `updated: "${currentDateIso()}"`,
+      'summary: "Legacy staging drafts without metadata should still be reviewable."',
+      "tags:",
+      '  - "artifact/application"',
+      'scope: "project/legacy-queue-recovery"',
+      'corpusId: "general_notes"',
+      'currentState: false',
+      'supersedes: []',
+      "---",
+      "",
+      "## Context",
+      "",
+      "Legacy drafts should be recovered into the governed review queue.",
+      "",
+      "## Current State",
+      "",
+      "This file was seeded directly on disk without SQLite metadata.",
+      "",
+      "## Open Questions",
+      "",
+      "Should the backend recover conservative metadata for operator review?",
+      "",
+      "## Next Steps",
+      "",
+      "Queue this draft for review."
+    ].join("\n"),
+    "utf8"
+  );
+
+  const queue = await container.services.reviewOperatorService.listReviewQueue({
+    actor: actor("operator"),
+    targetCorpus: "general_notes"
+  });
+
+  assert.equal(queue.ok, true);
+  assert.ok(queue.data.items.some((item) => item.draftNoteId === noteId));
+
+  const recoveredMetadata = await container.ports.metadataControlStore.getNote(noteId);
+  assert.ok(recoveredMetadata);
+  assert.equal(recoveredMetadata.lifecycleState, "draft");
+  assert.equal(recoveredMetadata.reviewState, "unreviewed");
+  assert.equal(recoveredMetadata.promotionEligible, false);
+  assert.match(recoveredMetadata.policyVersion ?? "", /legacy/i);
+});
+
+test("high-risk drafts cannot jump directly from unreviewed to promotion-ready", async (t) => {
+  const { container } = await createHarness(t);
+
+  const draft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "No Direct Promotion Ready",
+    sourcePrompt: "High-risk notes must pass through explicit approval before promotion readiness.",
+    supportingSources: [],
+    sourceBasis: ["user_instruction"],
+    frontmatterOverrides: {
+      scope: "governance/review-transitions"
+    }
+  });
+
+  assert.equal(draft.ok, true);
+
+  const review = await container.services.draftReviewService.reviewDraft({
+    actor: actor("operator"),
+    draftNoteId: draft.data.draftNoteId,
+    decision: "set_promotion_ready",
+    reviewNotes: "Attempting to skip the approved_draft state."
+  });
+
+  assert.equal(review.ok, false);
+  assert.equal(review.error.code, "validation_failed");
+  assert.match(review.error.message, /approved_draft|review state/i);
+});
+
+test("review workflow blocks self-approval for promotion readiness", async (t) => {
+  const { container } = await createHarness(t);
+  const sharedActorId = "shared-review-actor";
+
+  const draft = await container.services.stagingDraftService.createDraft({
+    actor: {
+      ...actor("writer"),
+      actorId: sharedActorId
+    },
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "Self Review Boundary",
+    sourcePrompt: "Attempt to self-approve a governed draft.",
+    supportingSources: [],
+    sourceBasis: ["user_instruction"],
+    frontmatterOverrides: {
+      scope: "governance/self-review-boundary"
+    }
+  });
+
+  assert.equal(draft.ok, true);
+
+  const review = await container.services.draftReviewService.reviewDraft({
+    actor: {
+      ...actor("operator"),
+      actorId: sharedActorId
+    },
+    draftNoteId: draft.data.draftNoteId,
+    decision: "set_promotion_ready",
+    reviewNotes: "This should be rejected as self-review."
+  });
+
+  assert.equal(review.ok, false);
+  assert.equal(review.error.code, "forbidden");
+  assert.match(review.error.message, /self-approve|self-mark/i);
+});
+
+test("promotion-ready review is bound to the reviewed draft revision", async (t) => {
+  const { container } = await createHarness(t);
+
+  const draft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "Reviewed Revision Binding",
+    sourcePrompt: "Promotion approval must be tied to the revision that was reviewed.",
+    supportingSources: [],
+    sourceBasis: ["user_instruction"],
+    frontmatterOverrides: {
+      scope: "governance/reviewed-revision"
+    }
+  });
+
+  assert.equal(draft.ok, true);
+
+  await reviewDraftForPromotion(container, draft.data.draftNoteId);
+
+  const persistedDraft = await container.ports.stagingNoteRepository.getById(
+    draft.data.draftNoteId
+  );
+  assert.ok(persistedDraft);
+
+  const updatedDraft = await container.ports.stagingNoteRepository.updateDraft({
+    ...persistedDraft,
+    body: `${persistedDraft.body}\n\n## Review Delta\n\nThis body changed after review approval.\n`
+  });
+
+  const promoted = await container.services.promotionOrchestratorService.promoteDraft({
+    actor: actor("orchestrator"),
+    draftNoteId: draft.data.draftNoteId,
+    targetCorpus: "general_notes",
+    promoteAsCurrentState: false
+  });
+
+  assert.equal(promoted.ok, false);
+  assert.equal(promoted.error.code, "validation_failed");
+  assert.match(promoted.error.message, /reviewed revision|review the latest draft/i);
+
+  const promotedAfterReReview = await container.services.draftReviewService.reviewDraft({
+    actor: actor("operator"),
+    draftNoteId: draft.data.draftNoteId,
+    decision: "approve_draft",
+    reviewNotes: "Approved again after the draft changed."
+  });
+
+  assert.equal(promotedAfterReReview.ok, true);
+  assert.equal(promotedAfterReReview.data.reviewedRevision, updatedDraft.revision);
+
+  const promotionReady = await container.services.draftReviewService.reviewDraft({
+    actor: actor("operator"),
+    draftNoteId: draft.data.draftNoteId,
+    decision: "set_promotion_ready",
+    reviewNotes: "Promotion cleared for the latest reviewed revision."
+  });
+
+  assert.equal(promotionReady.ok, true);
+  assert.equal(promotionReady.data.reviewedRevision, updatedDraft.revision);
+
+  const promotedOnLatestRevision = await container.services.promotionOrchestratorService.promoteDraft({
+    actor: actor("orchestrator"),
+    draftNoteId: draft.data.draftNoteId,
+    targetCorpus: "general_notes",
+    promoteAsCurrentState: false
+  });
+
+  assert.equal(promotedOnLatestRevision.ok, true);
+});
+
 test("writer actors cannot promote drafts", async (t) => {
   const { container } = await createHarness(t);
 
@@ -38,7 +466,11 @@ test("writer actors cannot promote drafts", async (t) => {
     targetCorpus: "context_brain",
     noteType: "decision",
     title: "Writer Promotion Boundary",
-    sourcePrompt: "Draft a policy note."
+    sourcePrompt: "Capture the decision boundary that only orchestrator actors may promote drafts.",
+    bodyHints: ["Writer actors should be forbidden from promoting staged drafts."],
+    frontmatterOverrides: {
+      scope: "governance/writer-promotion-boundary"
+    }
   });
 
   const result = await container.services.promotionOrchestratorService.promoteDraft({
@@ -75,6 +507,312 @@ test("context-brain drafts reject general-notes source leakage", async (t) => {
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "validation_failed");
   assert.match(result.error.message, /general_notes/i);
+});
+
+test("draft note reclassifies current-state-like drafts and blocks session-only evidence bypass", async (t) => {
+  const { container } = await createHarness(t);
+
+  const result = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "context_brain",
+    noteType: "policy",
+    title: "Session-only Current State Policy",
+    sourcePrompt: "Attempt to write a current-state policy draft from session synthesis alone.",
+    supportingSources: [],
+    sourceBasis: ["session_synthesis"],
+    frontmatterOverrides: {
+      scope: "governance/current-state-policy",
+      currentState: true
+    }
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "validation_failed");
+  assert.match(result.error.message, /governed note-ingress contract/i);
+  assert.equal(result.error.details.ingressDecision.action, "escalate");
+});
+
+test("draft ingress persists structured provenance for source basis and supporting sources", async (t) => {
+  const { container } = await createHarness(t);
+  const supportingNoteId = randomUUID();
+
+  const draft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "decision",
+    title: "Structured Provenance Persistence",
+    sourcePrompt: "Capture a decision draft with explicit retrieved evidence.",
+    supportingSources: [
+      {
+        noteId: supportingNoteId,
+        notePath: "context_brain/decisions/prior-decision.md",
+        headingPath: ["Decision"],
+        excerpt: "Earlier decision context."
+      }
+    ],
+    sourceBasis: ["retrieved_note", "user_instruction"],
+    frontmatterOverrides: {
+      scope: "governance/provenance-persistence"
+    }
+  });
+
+  assert.equal(draft.ok, true);
+
+  const provenance = await container.ports.metadataControlStore.getNoteProvenance(
+    draft.data.draftNoteId
+  );
+
+  assert.equal(provenance.length, 2);
+  assert.deepEqual(
+    provenance.map((entry) => entry.sourceBasis).sort(),
+    ["retrieved_note", "user_instruction"]
+  );
+  assert.ok(provenance.some((entry) => entry.sourceNoteId === supportingNoteId));
+});
+
+test("draft ingress persists the normalized scope and candidate summary chosen by the governed contract", async (t) => {
+  const { container } = await createHarness(t);
+
+  const draft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "architecture",
+    title: "Governed Scope Normalization",
+    sourcePrompt: "Capture the governed scope normalization behavior for durable drafts.",
+    supportingSources: [],
+    candidateSummary: "Durable drafts should persist the candidate summary and normalized scope chosen at ingress.",
+    sourceBasis: ["repo_inspection"],
+    bodyHints: ["The stored draft should keep the normalized scope string instead of the raw mixed-case input."],
+    frontmatterOverrides: {
+      scope: "Governance/Scope Normalization"
+    }
+  });
+
+  assert.equal(draft.ok, true);
+  assert.equal(draft.data.frontmatter.scope, "governance/scope-normalization");
+  assert.equal(
+    draft.data.frontmatter.summary,
+    "Durable drafts should persist the candidate summary and normalized scope chosen at ingress."
+  );
+});
+
+test("draft ingress blocks exact duplicate drafts before staging admission", async (t) => {
+  const { container } = await createHarness(t);
+
+  const firstDraft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "Duplicate Gate Exact Match",
+    sourcePrompt: "Store the exact duplicate draft gate policy.",
+    supportingSources: [],
+    sourceBasis: ["user_instruction"],
+    bodyHints: ["Exact duplicate drafts should become merge candidates instead of new staging clutter."],
+    frontmatterOverrides: {
+      scope: "governance/duplicate-gate"
+    }
+  });
+
+  assert.equal(firstDraft.ok, true);
+
+  const firstMetadata = await container.ports.metadataControlStore.getNote(
+    firstDraft.data.draftNoteId
+  );
+  assert.ok(firstMetadata?.contentHash);
+  assert.ok(firstMetadata?.semanticSignature);
+
+  const duplicateDraft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "Duplicate Gate Exact Match",
+    sourcePrompt: "Store the exact duplicate draft gate policy.",
+    supportingSources: [],
+    sourceBasis: ["user_instruction"],
+    bodyHints: ["Exact duplicate drafts should become merge candidates instead of new staging clutter."],
+    frontmatterOverrides: {
+      scope: "governance/duplicate-gate"
+    }
+  });
+
+  assert.equal(duplicateDraft.ok, false);
+  assert.equal(duplicateDraft.error.code, "validation_failed");
+  assert.equal(duplicateDraft.error.details.ingressDecision.action, "merge_candidate");
+  assert.ok(
+    duplicateDraft.error.details.ingressDecision.mergeHints.some(
+      (hint) => hint.noteId === firstDraft.data.draftNoteId
+    )
+  );
+});
+
+test("draft ingress blocks semantic duplicates for high-risk drafts even when the body changes", async (t) => {
+  const { container } = await createHarness(t);
+
+  const firstDraft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "Duplicate Gate Semantic Match",
+    sourcePrompt: "Store the semantic duplicate draft gate policy.",
+    supportingSources: [],
+    sourceBasis: ["user_instruction"],
+    bodyHints: ["First draft wording for the governed semantic duplicate policy."],
+    frontmatterOverrides: {
+      scope: "governance/semantic-duplicate-gate"
+    }
+  });
+
+  assert.equal(firstDraft.ok, true);
+
+  const nearDuplicateDraft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "Duplicate Gate Semantic Match",
+    sourcePrompt: "Store the semantic duplicate draft gate policy.",
+    supportingSources: [],
+    sourceBasis: ["user_instruction"],
+    bodyHints: ["Second draft wording that keeps the same title, scope, and summary but changes the body."],
+    frontmatterOverrides: {
+      scope: "governance/semantic-duplicate-gate"
+    }
+  });
+
+  assert.equal(nearDuplicateDraft.ok, false);
+  assert.equal(nearDuplicateDraft.error.code, "validation_failed");
+  assert.equal(nearDuplicateDraft.error.details.ingressDecision.action, "merge_candidate");
+  assert.ok(
+    nearDuplicateDraft.error.details.ingressDecision.mergeHints.some(
+      (hint) =>
+        hint.noteId === firstDraft.data.draftNoteId &&
+        /semantic|similar/i.test(hint.reason)
+    )
+  );
+});
+
+test("review rejects staged drafts whose governance frontmatter drifted after admission", async (t) => {
+  const { container } = await createHarness(t);
+
+  const draft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "Immutable Governance Frontmatter",
+    sourcePrompt: "Governance identity must stay locked after staging admission.",
+    supportingSources: [],
+    sourceBasis: ["user_instruction"],
+    frontmatterOverrides: {
+      scope: "governance/immutable-frontmatter"
+    }
+  });
+
+  assert.equal(draft.ok, true);
+
+  const persistedDraft = await container.ports.stagingNoteRepository.getById(
+    draft.data.draftNoteId
+  );
+  assert.ok(persistedDraft);
+
+  await container.ports.stagingNoteRepository.updateDraft({
+    ...persistedDraft,
+    frontmatter: {
+      ...persistedDraft.frontmatter,
+      scope: "governance/drifted-frontmatter"
+    }
+  });
+
+  const review = await container.services.draftReviewService.reviewDraft({
+    actor: actor("operator"),
+    draftNoteId: draft.data.draftNoteId,
+    decision: "approve_draft",
+    reviewNotes: "This should fail because the scope drifted after admission."
+  });
+
+  assert.equal(review.ok, false);
+  assert.equal(review.error.code, "validation_failed");
+  assert.match(review.error.message, /governance identity|immutable/i);
+});
+
+test("metadata store rejects provenance replacement that changes the admitted governance basis", async (t) => {
+  const { container } = await createHarness(t);
+
+  const draft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "Immutable Draft Provenance",
+    sourcePrompt: "Initial provenance should remain locked after staging admission.",
+    supportingSources: [],
+    sourceBasis: ["user_instruction"],
+    frontmatterOverrides: {
+      scope: "governance/immutable-provenance"
+    }
+  });
+
+  assert.equal(draft.ok, true);
+
+  await assert.rejects(
+    container.ports.metadataControlStore.replaceNoteProvenance(draft.data.draftNoteId, [
+      {
+        noteId: draft.data.draftNoteId,
+        ordinal: 0,
+        sourceBasis: "session_synthesis",
+        recordedAt: new Date().toISOString()
+      }
+    ]),
+    /immutable provenance|governance basis/i
+  );
+});
+
+test("metadata store rejects immutable governance metadata drift on admitted drafts", async (t) => {
+  const { container } = await createHarness(t);
+
+  const draft = await container.services.stagingDraftService.createDraft({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "policy",
+    title: "Immutable Governance Metadata",
+    sourcePrompt: "Governance metadata should stay locked after staging admission.",
+    supportingSources: [],
+    sourceBasis: ["user_instruction"],
+    frontmatterOverrides: {
+      scope: "governance/immutable-metadata"
+    }
+  });
+
+  assert.equal(draft.ok, true);
+
+  const metadata = await container.ports.metadataControlStore.getNote(
+    draft.data.draftNoteId
+  );
+  assert.ok(metadata);
+
+  await assert.rejects(
+    container.ports.metadataControlStore.upsertNote({
+      ...metadata,
+      authorityRisk: "low"
+    }),
+    /immutable governance|authority risk/i
+  );
+});
+
+test("note ingress blocks durable high-risk drafts whose required provenance basis is missing", async (t) => {
+  const { container } = await createHarness(t);
+
+  const result = container.services.noteIngressService.classify({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "architecture",
+    title: "Weak Architecture Draft",
+    sourcePrompt: "Store an architecture note with only session synthesis backing it.",
+    supportingSources: [],
+    sourceBasis: ["session_synthesis"],
+    scopeHint: "architecture/weak-architecture-draft"
+  });
+
+  assert.equal(result.action, "rewrite_required");
+  assert.equal(result.evidenceConfidence, "low");
+  assert.ok(result.rejectionReasons.some((reason) => /required provenance/i.test(reason)));
 });
 
 test("general notes cannot be written as current-state canonical context", async (t) => {
@@ -123,6 +861,7 @@ test("promotion of a current-state context note creates a deterministic snapshot
       scope: "writer-policy"
     }
   });
+  await reviewDraftForPromotion(container, draft.draftNoteId);
 
   const result = await container.services.promotionOrchestratorService.promoteDraft({
     actor: actor("orchestrator"),
@@ -159,6 +898,7 @@ test("promotion succeeds when derived representations fail to regenerate", async
       scope: "representation"
     }
   });
+  await reviewDraftForPromotion(container, draft.draftNoteId);
 
   let regenerationCalls = 0;
   const promotionService = new application.PromotionOrchestratorService(
@@ -192,6 +932,7 @@ test("promotion succeeds when derived representations fail to regenerate", async
   const promotedDraft = await container.ports.stagingNoteRepository.getById(draft.draftNoteId);
   assert.ok(promotedDraft);
   assert.equal(promotedDraft.lifecycleState, "promoted");
+  assert.match(promotedDraft.draftPath, /_promoted/i);
 
   const canonicalNote = await container.services.canonicalNoteService.getCanonicalNote(
     promoted.data.promotedNoteId
@@ -218,6 +959,7 @@ test("promotion outbox replays failed cross-store sync work after a transient in
       scope: "promotion-outbox"
     }
   });
+  await reviewDraftForPromotion(container, draft.draftNoteId);
 
   let failLexicalUpsertOnce = true;
   const failOnceLexicalIndex = {
@@ -278,6 +1020,7 @@ test("promotion outbox replays failed cross-store sync work after a transient in
   const promotedDraft = await container.ports.stagingNoteRepository.getById(draft.draftNoteId);
   assert.ok(promotedDraft);
   assert.equal(promotedDraft.lifecycleState, "promoted");
+  assert.match(promotedDraft.draftPath, /_promoted/i);
 });
 
 test("chunking preserves code fences, heading hierarchy, and adjacency", async (t) => {
@@ -1320,6 +2063,57 @@ test("schema validation blocks missing required sections", async (t) => {
   assert.ok(validation.violations.some((issue) => issue.field === "body.sections"));
 });
 
+test("schema validation blocks placeholder content in required sections", async (t) => {
+  const { container } = await createHarness(t);
+  const noteId = randomUUID();
+
+  const validation = container.services.noteValidationService.validate({
+    actor: actor("orchestrator"),
+    targetCorpus: "general_notes",
+    notePath: "general_notes/policy/placeholder-policy.md",
+    validationMode: "draft",
+    frontmatter: {
+      noteId,
+      title: "Placeholder Policy",
+      project: "multi-agent-brain",
+      type: "policy",
+      status: "draft",
+      updated: currentDateIso(),
+      summary: "Placeholder sections should be rejected.",
+      tags: ["project/multi-agent-brain", "artifact/application", "status/draft"],
+      scope: "general_notes",
+      corpusId: "general_notes",
+      currentState: false
+    },
+    body: [
+      "## Policy",
+      "",
+      "TBD.",
+      "",
+      "## Scope",
+      "",
+      "TODO",
+      "",
+      "## Rules",
+      "",
+      "To be determined.",
+      "",
+      "## Exceptions",
+      "",
+      "Placeholder."
+    ].join("\n")
+  });
+
+  assert.equal(validation.valid, false);
+  assert.ok(
+    validation.violations.some(
+      (issue) =>
+        issue.field === "body.sections" &&
+        /placeholder content/i.test(issue.message)
+    )
+  );
+});
+
 test("schema validation blocks inverted temporal validity windows", async (t) => {
   const { container } = await createHarness(t);
   const noteId = randomUUID();
@@ -1419,6 +2213,7 @@ async function createDraft(container, input) {
     title: input.title,
     sourcePrompt: input.sourcePrompt,
     supportingSources: input.supportingSources ?? [],
+    sourceBasis: input.sourceBasis ?? defaultSourceBasisForNoteType(input.noteType),
     bodyHints: input.bodyHints ?? [],
     frontmatterOverrides: input.frontmatterOverrides
   });
@@ -1440,6 +2235,7 @@ async function createAndPromote(container, input) {
       ...input.frontmatterOverrides
     }
   });
+  await reviewDraftForPromotion(container, draft.draftNoteId);
 
   const promoted = await container.services.promotionOrchestratorService.promoteDraft({
     actor: actor("orchestrator"),
@@ -1450,6 +2246,27 @@ async function createAndPromote(container, input) {
 
   assert.equal(promoted.ok, true);
   return promoted.data;
+}
+
+async function reviewDraftForPromotion(container, draftNoteId) {
+  const approved = await container.services.draftReviewService.reviewDraft({
+    actor: actor("operator"),
+    draftNoteId,
+    decision: "approve_draft",
+    reviewNotes: "Approved in the test harness before promotion readiness."
+  });
+
+  assert.equal(approved.ok, true);
+
+  const reviewed = await container.services.draftReviewService.reviewDraft({
+    actor: actor("operator"),
+    draftNoteId,
+    decision: "set_promotion_ready",
+    reviewNotes: "Approved in the test harness for governed promotion."
+  });
+
+  assert.equal(reviewed.ok, true);
+  return reviewed.data;
 }
 
 function actor(role) {
@@ -1499,4 +2316,17 @@ function countSummarySentences(value) {
     .map((sentence) => sentence.trim())
     .filter(Boolean)
     .length;
+}
+
+function defaultSourceBasisForNoteType(noteType) {
+  switch (noteType) {
+    case "policy":
+      return ["user_instruction"];
+    case "glossary":
+    case "handoff":
+    case "reference":
+      return ["session_synthesis"];
+    default:
+      return ["repo_inspection"];
+  }
 }

@@ -1,6 +1,9 @@
 import type {
+  AcceptNoteRequest,
   AssembleContextPacketRequest,
   AssembleContextPacketResponse,
+  ClassifyNoteIngressRequest,
+  ClassifyNoteIngressResponse,
   CreateSessionArchiveRequest,
   CreateRefreshDraftBatchRequest,
   CreateRefreshDraftRequest,
@@ -9,8 +12,12 @@ import type {
   ExecuteCodingTaskResponse,
   GetDecisionSummaryRequest,
   ImportResourceRequest,
+  ListReviewQueueRequest,
   PromoteNoteRequest,
   QueryHistoryRequest,
+  ReadReviewNoteRequest,
+  RejectNoteRequest,
+  ReviewDraftNoteRequest,
   RetrieveContextRequest,
   ValidateNoteRequest,
   ValidateNoteResponse
@@ -62,6 +69,54 @@ export class MultiAgentOrchestrator {
     this.assertAuthorized("draft_note", request.actor);
     this.assertBrainRoute("draft_note");
     return this.brainController.draftNote(request);
+  }
+
+  async reviewDraftNote(
+    request: ReviewDraftNoteRequest
+  ) {
+    this.assertAuthorized("review_draft_note", request.actor);
+    this.assertBrainRoute("review_draft_note");
+    return this.brainController.reviewDraftNote(request);
+  }
+
+  async listReviewQueue(
+    request: ListReviewQueueRequest
+  ) {
+    this.assertAuthorized("list_review_queue", request.actor);
+    this.assertBrainRoute("list_review_queue");
+    return this.brainController.listReviewQueue(request);
+  }
+
+  async readReviewNote(
+    request: ReadReviewNoteRequest
+  ) {
+    this.assertAuthorized("read_review_note", request.actor);
+    this.assertBrainRoute("read_review_note");
+    return this.brainController.readReviewNote(request);
+  }
+
+  async acceptNote(
+    request: AcceptNoteRequest
+  ) {
+    this.assertAuthorized("accept_note", request.actor);
+    this.assertBrainRoute("accept_note");
+    return this.brainController.acceptNote(request);
+  }
+
+  async rejectNote(
+    request: RejectNoteRequest
+  ) {
+    this.assertAuthorized("reject_note", request.actor);
+    this.assertBrainRoute("reject_note");
+    return this.brainController.rejectNote(request);
+  }
+
+  classifyNoteIngress(
+    request: ClassifyNoteIngressRequest
+  ): ClassifyNoteIngressResponse {
+    this.assertAuthorized("classify_note_ingress", request.actor);
+    this.assertBrainRoute("classify_note_ingress");
+    return this.brainController.classifyNoteIngress(request);
   }
 
   async createSessionArchive(
@@ -135,7 +190,13 @@ export class MultiAgentOrchestrator {
       | "search_context"
       | "get_context_packet"
       | "fetch_decision_summary"
+      | "classify_note_ingress"
       | "draft_note"
+      | "review_draft_note"
+      | "list_review_queue"
+      | "read_review_note"
+      | "accept_note"
+      | "reject_note"
       | "create_session_archive"
       | "create_refresh_draft"
       | "create_refresh_drafts"

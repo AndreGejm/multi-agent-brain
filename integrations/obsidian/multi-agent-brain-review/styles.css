@@ -1,0 +1,52 @@
+.mab-review-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  padding: 12px;
+}
+
+.mab-review-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mab-review-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mab-review-title-row h2,
+.mab-review-note-title {
+  margin: 0;
+}
+
+.mab-review-position,
+.mab-review-meta,
+.mab-review-status {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.mab-review-warning {
+  color: var(--text-warning);
+  font-size: var(--font-ui-small);
+}
+
+.mab-review-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--background-secondary);
+}
+
+.mab-review-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

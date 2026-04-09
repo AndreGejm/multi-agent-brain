@@ -82,31 +82,79 @@ Important runtime detail:
 
 1. checks actor role
 2. checks corpus/source boundary rules
-3. builds draft frontmatter and path
-4. generates a body from either:
+3. classifies the candidate through `NoteIngressService`
+4. rejects requests whose client-supplied classification does not match the authoritative runtime decision
+5. blocks governed ingress actions other than `draft_candidate`
+6. builds draft frontmatter and path
+7. generates a body from either:
    - the drafting provider, or
    - a deterministic fallback body
-5. validates the draft
-6. persists the staging draft
-7. mirrors note metadata into SQLite
+8. validates the draft
+9. computes duplicate identity hashes and blocks exact or governed semantic duplicates before staging admission
+10. persists the staging draft
+11. mirrors note metadata into SQLite, including:
+   - authority risk
+   - review state
+   - promotion eligibility
+   - submitter and ingress lineage fields
+   - duplicate identity hashes
+12. persists structured provenance rows for declared source basis and supporting note refs
+13. stores the normalized ingress scope and candidate summary into the admitted draft frontmatter so later review and duplicate gates see the same governed metadata
+
+Draft validation at this stage is structural and authority-aware. Required
+sections must exist and may not remain placeholder-only scaffolds such as
+`TBD.` or `TODO`.
+
+Current runtime nuance:
+
+- `classify-note-ingress` / `classify_note_ingress` are explicit transport surfaces
+- `classify-note-ingress` can infer `noteType` and `targetCorpus` when the candidate is clear enough, but those inferred values are still runtime-owned outputs, not caller authority
+- `draft_note` still reclassifies server-side so callers cannot weaken policy by bypassing the preflight tool
+- `draft_note` remains explicit in beta; it does not inherit optional note-type or corpus inference from the classify surface
+- note-worthiness is enforced before staging: low-information session residue downgrades to `session_only`, transcript-like captures are rejected, and vague high-risk candidates degrade to `rewrite_required`
+- the first enforced high-risk bypass closes current-state-like drafts that rely only on session-synthesis evidence
+- note-type-aware provenance checks can now downgrade or block candidates before staging when the required source basis is missing, and chunk-level supporting provenance survives transport ingress into SQLite
+- exact duplicate drafts and high-confidence semantic duplicates now downgrade to governed `merge_candidate` failures before they enter staging
+
+### Draft review
+
+`packages/application/src/services/draft-review-service.ts`:
+
+1. loads the staging draft and its mirrored metadata row
+2. enforces reviewer-role boundaries
+3. enforces the explicit review-state transition rules
+4. blocks self-approval for `approve_draft` and `set_promotion_ready`
+5. rejects drafts whose file-backed frontmatter no longer matches the admitted immutable governance identity
+6. persists explicit review state, reviewed revision, and promotion eligibility back into SQLite
+
+Current runtime nuance:
+
+- namespace projection still exposes a compact `promotionStatus`, but the authoritative review state now lives in metadata
+- `review_draft_note` / `review-draft-note` are explicit transport surfaces for this step
+- thin operator frontends should call `list_review_queue`, `read_review_note`, `accept_note`, and `reject_note` so the orchestrator owns the multi-step workflow
+- high-risk drafts must pass through `approve_draft` before `set_promotion_ready`
+- admitted drafts now treat note type, corpus, scope, current-state intent, and the initial governance basis as immutable runtime identity
 
 ### Promotion
 
 `packages/application/src/services/promotion-orchestrator-service.ts`:
 
 1. loads the staging draft
-2. checks revision expectations
-3. validates the promotion candidate
-4. checks duplicate signatures
-5. finds superseded current-state notes when needed
-6. optionally prepares a snapshot note for current-state promotions
-7. enqueues promotion work into the SQLite promotion outbox
-8. processes the outbox entry inline
-9. writes canonical files
-10. syncs chunk metadata, lexical index, and vector index
-11. records promotion metadata and audit history
-12. marks the staging draft as promoted
-13. attempts derived representation regeneration
+2. loads mirrored draft metadata and rejects drafts that are not `promotion_ready`
+3. rejects drafts whose file-backed frontmatter no longer matches the admitted immutable governance identity
+4. rejects drafts whose current staging revision no longer matches the explicitly reviewed revision
+5. checks revision expectations
+6. validates the promotion candidate
+7. checks canonical duplicate signatures while ignoring the draft that is currently being promoted
+8. finds superseded current-state notes when needed
+9. optionally prepares a snapshot note for current-state promotions
+10. enqueues promotion work into the SQLite promotion outbox
+11. processes the outbox entry inline
+12. writes canonical files
+13. syncs chunk metadata, lexical index, and vector index
+14. records promotion metadata and audit history
+15. marks the staging draft as promoted
+16. attempts derived representation regeneration
 
 Important boundary:
 

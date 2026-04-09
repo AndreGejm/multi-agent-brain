@@ -309,6 +309,7 @@ test("staging draft service uses the drafting provider output before determinist
     stagingRepository,
     metadataControlStore,
     noteValidationService,
+    new application.NoteIngressService(),
     {
       providerId: "fake-local-drafting",
       async draftStructuredNote(request) {
@@ -365,7 +366,8 @@ test("staging draft service uses the drafting provider output before determinist
     noteType: "decision",
     title: "Local Drafted Decision",
     sourcePrompt: "Create a promoted drafting policy.",
-    supportingSources: []
+    supportingSources: [],
+    sourceBasis: ["repo_inspection"]
   });
 
   assert.equal(result.ok, true);

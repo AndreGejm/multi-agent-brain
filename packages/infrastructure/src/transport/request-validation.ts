@@ -20,6 +20,23 @@ const NOTE_TYPES = new Set([
   "reference",
   "policy"
 ]);
+const NOTE_SOURCE_BASES = new Set([
+  "user_instruction",
+  "repo_inspection",
+  "retrieved_note",
+  "direct_observation",
+  "session_synthesis",
+  "inferred_multi_source",
+  "imported_external"
+]);
+const DRAFT_REVIEW_DECISIONS = new Set([
+  "approve_draft",
+  "request_rewrite",
+  "require_merge",
+  "reject",
+  "escalate",
+  "set_promotion_ready"
+]);
 const NOTE_LIFECYCLE_STATES = new Set([
   "draft",
   "staged",
@@ -161,6 +178,20 @@ export function validateTransportRequest(
         topic: requireString(payload.topic, "topic"),
         budget: validateBudget(payload.budget, "budget")
       };
+    case "classify-note-ingress":
+      return {
+        actor,
+        targetCorpus: optionalEnum(payload.targetCorpus, "targetCorpus", CORPORA),
+        noteType: optionalEnum(payload.noteType, "noteType", NOTE_TYPES),
+        title: requireString(payload.title, "title"),
+        sourcePrompt: requireString(payload.sourcePrompt, "sourcePrompt"),
+        supportingSources: validateSupportingSources(payload.supportingSources, "supportingSources"),
+        bodyHints: optionalStringArray(payload.bodyHints, "bodyHints"),
+        scopeHint: optionalString(payload.scopeHint, "scopeHint"),
+        candidateSummary: optionalString(payload.candidateSummary, "candidateSummary"),
+        currentStateIntent: optionalBoolean(payload.currentStateIntent, "currentStateIntent"),
+        sourceBasis: optionalEnumArray(payload.sourceBasis, "sourceBasis", NOTE_SOURCE_BASES)
+      };
     case "draft-note":
       return {
         actor,
@@ -170,7 +201,39 @@ export function validateTransportRequest(
         sourcePrompt: requireString(payload.sourcePrompt, "sourcePrompt"),
         supportingSources: validateSupportingSources(payload.supportingSources, "supportingSources"),
         frontmatterOverrides: optionalFrontmatterOverrides(payload.frontmatterOverrides, "frontmatterOverrides"),
-        bodyHints: optionalStringArray(payload.bodyHints, "bodyHints")
+        bodyHints: optionalStringArray(payload.bodyHints, "bodyHints"),
+        candidateSummary: optionalString(payload.candidateSummary, "candidateSummary"),
+        sourceBasis: optionalEnumArray(payload.sourceBasis, "sourceBasis", NOTE_SOURCE_BASES),
+        classification: optionalClassification(payload.classification, "classification")
+      };
+    case "review-draft-note":
+      return {
+        actor,
+        draftNoteId: requireString(payload.draftNoteId, "draftNoteId"),
+        decision: requireEnum(payload.decision, "decision", DRAFT_REVIEW_DECISIONS),
+        reviewNotes: optionalString(payload.reviewNotes, "reviewNotes")
+      };
+    case "list-review-queue":
+      return {
+        actor,
+        targetCorpus: optionalEnum(payload.targetCorpus, "targetCorpus", CORPORA),
+        includeRejected: optionalBoolean(payload.includeRejected, "includeRejected")
+      };
+    case "read-review-note":
+      return {
+        actor,
+        draftNoteId: requireString(payload.draftNoteId, "draftNoteId")
+      };
+    case "accept-note":
+      return {
+        actor,
+        draftNoteId: requireString(payload.draftNoteId, "draftNoteId")
+      };
+    case "reject-note":
+      return {
+        actor,
+        draftNoteId: requireString(payload.draftNoteId, "draftNoteId"),
+        reviewNotes: optionalString(payload.reviewNotes, "reviewNotes")
       };
     case "create-refresh-draft":
       return {
@@ -301,6 +364,7 @@ function validateSupportingSources(value: unknown, field: string): JsonRecord[] 
     const record = requireObject(source, itemField);
     return {
       noteId: optionalString(record.noteId, `${itemField}.noteId`),
+      chunkId: optionalString(record.chunkId, `${itemField}.chunkId`),
       notePath: requireString(record.notePath, `${itemField}.notePath`),
       headingPath: requireStringArray(record.headingPath, `${itemField}.headingPath`),
       excerpt: optionalString(record.excerpt, `${itemField}.excerpt`)
@@ -354,6 +418,22 @@ function optionalFrontmatterOverrides(value: unknown, field: string): JsonRecord
     validUntil: optionalString(frontmatter.validUntil, `${field}.validUntil`),
     supersedes: optionalStringArray(frontmatter.supersedes, `${field}.supersedes`),
     supersededBy: optionalString(frontmatter.supersededBy, `${field}.supersededBy`)
+  };
+}
+
+function optionalClassification(value: unknown, field: string): JsonRecord | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const classification = requireObject(value, field);
+  return {
+    classificationHash: requireString(
+      classification.classificationHash,
+      `${field}.classificationHash`
+    ),
+    policyVersion: requireString(classification.policyVersion, `${field}.policyVersion`),
+    action: optionalString(classification.action, `${field}.action`)
   };
 }
 

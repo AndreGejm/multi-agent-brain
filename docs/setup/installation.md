@@ -56,6 +56,7 @@ MAB_LOG_LEVEL=info
 Why this works:
 
 - `packages/application/src/services/staging-draft-service.ts` falls back to a deterministic draft body when no drafting provider is configured
+- draft validation rejects placeholder-only required sections, so the fallback must still produce reviewable draft content
 - `packages/infrastructure/src/vector/qdrant-vector-index.ts` uses `softFail: true` by default, so missing Qdrant degrades vector search instead of crashing the service
 - the end-to-end tests repeatedly use the `hash` / `heuristic` / `disabled` / `local` provider profile
 

@@ -84,6 +84,16 @@ Start with:
 - `runtimes/local_experts/bridge.py`
 - `runtimes/local_experts/server.py`
 
+### Change review frontend behavior
+
+Start with:
+
+- `packages/application/src/services/review-operator-service.ts`
+- `apps/brain-api/src/server.ts`, `apps/brain-cli/src/main.ts`, or `apps/brain-mcp/src/tool-definitions.ts` if the contract changes
+- `scripts/review-note-gui.py`
+- `integrations/obsidian/multi-agent-brain-review/main.js`
+- `docs/reference/interfaces.md`
+
 ## Dangerous edit zones
 
 Be especially careful in these files because they affect multiple runtime surfaces:

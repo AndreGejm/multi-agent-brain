@@ -1,5 +1,8 @@
 import type {
+  ReviewOperatorService,
   AuditHistoryService,
+  DraftReviewService,
+  NoteIngressService,
   NoteValidationService,
   PromotionOrchestratorService,
   SessionArchiveService,
@@ -7,12 +10,19 @@ import type {
   TemporalRefreshService
 } from "@multi-agent-brain/application";
 import type {
+  AcceptNoteRequest,
   CreateSessionArchiveRequest,
+  ClassifyNoteIngressRequest,
+  ClassifyNoteIngressResponse,
   CreateRefreshDraftBatchRequest,
   CreateRefreshDraftRequest,
   DraftNoteRequest,
+  ListReviewQueueRequest,
   PromoteNoteRequest,
   QueryHistoryRequest,
+  ReadReviewNoteRequest,
+  RejectNoteRequest,
+  ReviewDraftNoteRequest,
   ValidateNoteRequest,
   ValidateNoteResponse
 } from "@multi-agent-brain/contracts";
@@ -20,6 +30,9 @@ import type {
 export class BrainMemoryController {
   constructor(
     private readonly stagingDraftService: StagingDraftService,
+    private readonly draftReviewService: DraftReviewService,
+    private readonly reviewOperatorService: ReviewOperatorService,
+    private readonly noteIngressService: NoteIngressService,
     private readonly noteValidationService: NoteValidationService,
     private readonly promotionOrchestratorService: PromotionOrchestratorService,
     private readonly sessionArchiveService: SessionArchiveService,
@@ -31,6 +44,42 @@ export class BrainMemoryController {
     request: DraftNoteRequest
   ) {
     return this.stagingDraftService.createDraft(request);
+  }
+
+  async reviewDraftNote(
+    request: ReviewDraftNoteRequest
+  ) {
+    return this.draftReviewService.reviewDraft(request);
+  }
+
+  async listReviewQueue(
+    request: ListReviewQueueRequest
+  ) {
+    return this.reviewOperatorService.listReviewQueue(request);
+  }
+
+  async readReviewNote(
+    request: ReadReviewNoteRequest
+  ) {
+    return this.reviewOperatorService.readReviewNote(request);
+  }
+
+  async acceptNote(
+    request: AcceptNoteRequest
+  ) {
+    return this.reviewOperatorService.acceptNote(request);
+  }
+
+  async rejectNote(
+    request: RejectNoteRequest
+  ) {
+    return this.reviewOperatorService.rejectNote(request);
+  }
+
+  classifyNoteIngress(
+    request: ClassifyNoteIngressRequest
+  ): ClassifyNoteIngressResponse {
+    return this.noteIngressService.classify(request);
   }
 
   validateNote(request: ValidateNoteRequest): ValidateNoteResponse {

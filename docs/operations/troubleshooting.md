@@ -122,13 +122,90 @@ Helpful surfaces:
 
 Observed behavior:
 
-- when no drafting provider is configured, `StagingDraftService` generates a deterministic fallback body
+- when no drafting provider is configured, `StagingDraftService` generates a deterministic fallback body with reviewable section text
 - when a drafting provider is configured, it uses provider output first and then validates it
+- draft ingress rejects placeholder-only required sections such as `TBD.`, `TODO`, or `Placeholder.`
 
 What to do:
 
 - if you want predictable no-model behavior, set `MAB_DRAFTING_PROVIDER=disabled`
+- if draft creation now fails with `validation_failed`, inspect required sections first; placeholder scaffolds no longer pass ingress validation
 - if you want model-backed drafting, configure the provider endpoint and model variables explicitly
+
+## `promote_note` fails because a draft is not promotion-ready
+
+Observed behavior:
+
+- promotion now checks explicit review metadata before it will touch canonical memory
+- a staged draft can exist in SQLite and still be non-promotable
+
+What to do:
+
+- if you are reviewing through a thin frontend, use `accept-note` instead of replaying the lower-level workflow yourself
+- run `classify-note-ingress` first if the candidate path is ambiguous
+- create the draft through `draft-note`
+- for high-risk drafts, mark it with `review-draft-note` using `approve_draft` first and `set_promotion_ready` second
+- retry `promote-note` only after the review step succeeds
+
+## `promote_note` says the draft must be reviewed again for the latest revision
+
+Observed behavior:
+
+- promotion is now bound to the revision that was explicitly reviewed
+- if the draft changes after review, the earlier `promotion_ready` decision is no longer enough
+
+What to do:
+
+- if you are using the thin review frontend, press `Accept` again after re-reading the current draft revision
+- review the updated draft again through `review-draft-note`
+- advance it back through `approve_draft` and then `set_promotion_ready`
+- retry promotion only after the draft's current revision matches the reviewed revision
+
+## `review-draft-note` or `promote-note` says the draft governance identity no longer matches the admitted staging contract
+
+Observed behavior:
+
+- once a draft is admitted, its note type, corpus, scope, current-state intent, and initial governance basis are treated as immutable
+- review and promotion now reject drafts if those admitted governance fields drift afterward
+
+What to do:
+
+- inspect the staged draft file and compare its frontmatter to the originally admitted draft metadata
+- if the drift was accidental, restore the original governance fields and rerun review
+- if the note truly needs a different corpus, type, scope, or governance basis, create a new staged draft instead of mutating the old one in place
+
+## `classify-note-ingress` or `draft-note` rejects a high-risk candidate for missing provenance
+
+Observed behavior:
+
+- note ingress now persists structured source-basis metadata and supporting note refs
+- `classify-note-ingress` can infer `noteType` and `targetCorpus` when those hints are omitted and the candidate is strong enough
+- high-risk note types can be downgraded or blocked when their required source basis is missing
+- low-information session residue can be downgraded to `session_only`
+- raw transcript-like captures can be rejected outright instead of entering durable staging
+
+What to do:
+
+- if `classify-note-ingress` can infer the note cleanly, reuse its returned `noteType`, `targetCorpus`, and normalized `scope` when you move on to `draft-note`
+- provide `sourceBasis` explicitly when the note depends on `repo_inspection`, `user_instruction`, `retrieved_note`, or another governed basis
+- include `supportingSources` when the candidate is grounded in existing notes, and include `chunkId` when you have chunk-level evidence available
+- add a specific scope, summary, or body hints when a vague high-risk candidate is returned as `rewrite_required`
+- keep raw transcript residue in a session archive or distilled handoff note instead of retrying it as a durable draft
+- refine the candidate and retry if the response comes back as `rewrite_required` or `session_only`
+- once the draft has been admitted, do not replace its initial provenance basis in place; create a new draft if the evidence set materially changes
+
+## `draft-note` says the candidate is a `merge_candidate`
+
+Observed behavior:
+
+- draft ingress now computes duplicate identity hashes before staging admission
+- exact duplicates and governed semantic duplicates are rejected before they create extra staging drafts
+
+What to do:
+
+- inspect `error.details.ingressDecision.mergeHints` to see the conflicting draft or canonical note IDs and paths
+- review the existing note first instead of creating a second copy
+- either merge into the existing draft, rewrite the candidate so its scope or summary is materially different, or discard the duplicate request
 
 ## Coding tasks fail or escalate immediately
 

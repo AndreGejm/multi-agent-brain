@@ -3,19 +3,25 @@
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 import type {
+  AcceptNoteRequest,
   ActorContext,
+  ClassifyNoteIngressRequest,
   CreateSessionArchiveRequest,
   CreateRefreshDraftBatchRequest,
-  CreateRefreshDraftRequest,
-  GetContextPacketToolRequest,
+	CreateRefreshDraftRequest,
+	GetContextPacketToolRequest,
   DraftNoteRequest,
-  ExecuteCodingTaskRequest,
-  GetDecisionSummaryRequest,
-  ImportResourceRequest,
+	ExecuteCodingTaskRequest,
+	GetDecisionSummaryRequest,
+	ImportResourceRequest,
+  ListReviewQueueRequest,
   ListContextTreeToolRequest,
   PromoteNoteRequest,
   QueryHistoryRequest,
+  ReadReviewNoteRequest,
   ReadContextNodeToolRequest,
+  RejectNoteRequest,
+  ReviewDraftNoteRequest,
   RetrieveContextRequest,
   ValidateNoteRequest
 } from "@multi-agent-brain/contracts";
@@ -285,9 +291,33 @@ async function runTool(name: string, request: JsonRecord): Promise<unknown> {
       return container.orchestrator.getContextPacket(
         request as unknown as GetContextPacketToolRequest
       );
+    case "classify_note_ingress":
+      return container.orchestrator.classifyNoteIngress(
+        request as unknown as ClassifyNoteIngressRequest
+      );
     case "draft_note":
       return container.orchestrator.draftNote(
         request as unknown as DraftNoteRequest
+      );
+    case "review_draft_note":
+      return container.orchestrator.reviewDraftNote(
+        request as unknown as ReviewDraftNoteRequest
+      );
+    case "list_review_queue":
+      return container.orchestrator.listReviewQueue(
+        request as unknown as ListReviewQueueRequest
+      );
+    case "read_review_note":
+      return container.orchestrator.readReviewNote(
+        request as unknown as ReadReviewNoteRequest
+      );
+    case "accept_note":
+      return container.orchestrator.acceptNote(
+        request as unknown as AcceptNoteRequest
+      );
+    case "reject_note":
+      return container.orchestrator.rejectNote(
+        request as unknown as RejectNoteRequest
       );
     case "create_refresh_draft":
       return container.orchestrator.createRefreshDraft(

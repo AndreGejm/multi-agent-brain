@@ -20,10 +20,16 @@ stdio MCP adapter over the shared runtime container.
 - `list_context_tree`
 - `read_context_node`
 - `get_context_packet`
+- `classify_note_ingress`
 - `create_refresh_draft`
 - `create_refresh_drafts`
 - `import_resource`
 - `draft_note`
+- `review_draft_note`
+- `list_review_queue`
+- `read_review_note`
+- `accept_note`
+- `reject_note`
 - `fetch_decision_summary`
 - `validate_note`
 - `promote_note`
@@ -40,7 +46,7 @@ stdio MCP adapter over the shared runtime container.
 ## Run
 
 ```bash
-pnpm mcp
+corepack pnpm mcp
 ```
 
 ## Canonical docs

@@ -184,6 +184,7 @@ async function createAndPromote(container, input) {
     title: input.title,
     sourcePrompt: `Draft ${input.title}`,
     supportingSources: [],
+    sourceBasis: ["repo_inspection"],
     bodyHints: input.bodyHints,
     frontmatterOverrides: {
       scope: input.scope
@@ -191,6 +192,23 @@ async function createAndPromote(container, input) {
   });
 
   assert.equal(draft.ok, true);
+  const approved = await container.services.draftReviewService.reviewDraft({
+    actor: actor("operator"),
+    draftNoteId: draft.data.draftNoteId,
+    decision: "approve_draft",
+    reviewNotes: "Approved in the retrieval-strategy test harness."
+  });
+
+  assert.equal(approved.ok, true);
+
+  const reviewed = await container.services.draftReviewService.reviewDraft({
+    actor: actor("operator"),
+    draftNoteId: draft.data.draftNoteId,
+    decision: "set_promotion_ready",
+    reviewNotes: "Approved in the retrieval-strategy test harness."
+  });
+
+  assert.equal(reviewed.ok, true);
 
   const promoted = await container.services.promotionOrchestratorService.promoteDraft({
     actor: actor("orchestrator"),

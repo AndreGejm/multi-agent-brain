@@ -116,6 +116,9 @@ The repository currently provides:
 - an HTTP server
 - a stdio MCP server
 - a Docker compose profile for the HTTP server plus Qdrant
+- thin local review shells for operators:
+  - `scripts/review-note-gui.py`
+  - `integrations/obsidian/multi-agent-brain-review`
 
 The repository does not currently contain:
 

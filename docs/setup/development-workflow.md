@@ -83,7 +83,7 @@ When changing the repo:
 
 - no tracked CI workflow runs these checks for you
 - no tracked migration runner exists for SQLite changes
-- no tracked shell bootstrap script exists in `scripts/`
+- no tracked bootstrap, reindex, or release automation script exists in `scripts/`; that directory currently contains local helper utilities such as the Tkinter review client
 
 ## Evidence status
 

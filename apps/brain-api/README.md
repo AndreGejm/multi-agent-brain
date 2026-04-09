@@ -31,7 +31,13 @@ HTTP adapter over the shared runtime container.
 
 ### Memory and governance
 
+- `POST /v1/notes/classify-ingress`
 - `POST /v1/notes/drafts`
+- `POST /v1/notes/drafts/review`
+- `POST /v1/review/queue`
+- `POST /v1/review/note`
+- `POST /v1/review/accept`
+- `POST /v1/review/reject`
 - `POST /v1/system/freshness/refresh-draft`
 - `POST /v1/system/freshness/refresh-drafts`
 - `POST /v1/notes/validate`
@@ -55,7 +61,7 @@ HTTP adapter over the shared runtime container.
 ## Run
 
 ```bash
-pnpm api
+corepack pnpm api
 ```
 
 ## Canonical docs

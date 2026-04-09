@@ -1,15 +1,22 @@
 import type { ImportOrchestrationService } from "@multi-agent-brain/application";
 import type {
+  AcceptNoteRequest,
   AssembleContextPacketRequest,
   AssembleContextPacketResponse,
+  ClassifyNoteIngressRequest,
+  ClassifyNoteIngressResponse,
   CreateSessionArchiveRequest,
   CreateRefreshDraftBatchRequest,
   CreateRefreshDraftRequest,
   DraftNoteRequest,
   GetDecisionSummaryRequest,
   ImportResourceRequest,
+  ListReviewQueueRequest,
   PromoteNoteRequest,
   QueryHistoryRequest,
+  ReadReviewNoteRequest,
+  RejectNoteRequest,
+  ReviewDraftNoteRequest,
   RetrieveContextRequest,
   ValidateNoteRequest,
   ValidateNoteResponse
@@ -46,6 +53,42 @@ export class BrainDomainController {
     request: DraftNoteRequest
   ) {
     return this.memoryController.draftNote(request);
+  }
+
+  async reviewDraftNote(
+    request: ReviewDraftNoteRequest
+  ) {
+    return this.memoryController.reviewDraftNote(request);
+  }
+
+  async listReviewQueue(
+    request: ListReviewQueueRequest
+  ) {
+    return this.memoryController.listReviewQueue(request);
+  }
+
+  async readReviewNote(
+    request: ReadReviewNoteRequest
+  ) {
+    return this.memoryController.readReviewNote(request);
+  }
+
+  async acceptNote(
+    request: AcceptNoteRequest
+  ) {
+    return this.memoryController.acceptNote(request);
+  }
+
+  async rejectNote(
+    request: RejectNoteRequest
+  ) {
+    return this.memoryController.rejectNote(request);
+  }
+
+  classifyNoteIngress(
+    request: ClassifyNoteIngressRequest
+  ): ClassifyNoteIngressResponse {
+    return this.memoryController.classifyNoteIngress(request);
   }
 
   async createSessionArchive(

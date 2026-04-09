@@ -182,6 +182,67 @@ export const MCP_TOOL_DEFINITIONS: ReadonlyArray<McpToolDefinition> = [
     }
   },
   {
+    name: "list_review_queue",
+    title: "List Review Queue",
+    description: "List the active governed review queue for thin operator frontends.",
+    defaultActorRole: "operator",
+    inputSchema: {
+      type: "object",
+      additionalProperties: true,
+      properties: {
+        actor: { type: "object" },
+        targetCorpus: { type: "string", enum: ["context_brain", "general_notes"] },
+        includeRejected: { type: "boolean" }
+      }
+    }
+  },
+  {
+    name: "read_review_note",
+    title: "Read Review Note",
+    description: "Read a full review payload for one staged draft note.",
+    defaultActorRole: "operator",
+    inputSchema: {
+      type: "object",
+      required: ["draftNoteId"],
+      additionalProperties: true,
+      properties: {
+        actor: { type: "object" },
+        draftNoteId: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "accept_note",
+    title: "Accept Note",
+    description: "Accept a staged review note through the orchestrator-owned approve, ready, and promote flow.",
+    defaultActorRole: "operator",
+    inputSchema: {
+      type: "object",
+      required: ["draftNoteId"],
+      additionalProperties: true,
+      properties: {
+        actor: { type: "object" },
+        draftNoteId: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "reject_note",
+    title: "Reject Note",
+    description: "Reject and archive a staged review note under orchestrator control.",
+    defaultActorRole: "operator",
+    inputSchema: {
+      type: "object",
+      required: ["draftNoteId"],
+      additionalProperties: true,
+      properties: {
+        actor: { type: "object" },
+        draftNoteId: { type: "string" },
+        reviewNotes: { type: "string" }
+      }
+    }
+  },
+  {
     name: "create_refresh_draft",
     title: "Create Refresh Draft",
     description: "Create a governed staging refresh draft for an expired or expiring current-state canonical note.",
@@ -242,6 +303,30 @@ export const MCP_TOOL_DEFINITIONS: ReadonlyArray<McpToolDefinition> = [
     }
   },
   {
+    name: "classify_note_ingress",
+    title: "Classify Note Ingress",
+    description: "Resolve the governed note-ingress contract for a candidate before any draft is written.",
+    defaultActorRole: "writer",
+    inputSchema: {
+      type: "object",
+      required: ["title", "sourcePrompt", "supportingSources"],
+      additionalProperties: true,
+      properties: {
+        actor: { type: "object" },
+        targetCorpus: { type: "string", enum: ["context_brain", "general_notes"] },
+        noteType: { type: "string" },
+        title: { type: "string" },
+        sourcePrompt: { type: "string" },
+        supportingSources: { type: "array", items: { type: "object" } },
+        bodyHints: { type: "array", items: { type: "string" } },
+        scopeHint: { type: "string" },
+        candidateSummary: { type: "string" },
+        currentStateIntent: { type: "boolean" },
+        sourceBasis: { type: "array", items: { type: "string" } }
+      }
+    }
+  },
+  {
     name: "draft_note",
     title: "Draft Note",
     description: "Create a staging draft through the writer-only drafting service.",
@@ -258,7 +343,37 @@ export const MCP_TOOL_DEFINITIONS: ReadonlyArray<McpToolDefinition> = [
         sourcePrompt: { type: "string" },
         supportingSources: { type: "array", items: { type: "object" } },
         frontmatterOverrides: { type: "object" },
-        bodyHints: { type: "array", items: { type: "string" } }
+        bodyHints: { type: "array", items: { type: "string" } },
+        candidateSummary: { type: "string" },
+        sourceBasis: { type: "array", items: { type: "string" } },
+        classification: { type: "object" }
+      }
+    }
+  },
+  {
+    name: "review_draft_note",
+    title: "Review Draft Note",
+    description: "Record an explicit governed review decision for a staging draft before promotion.",
+    defaultActorRole: "operator",
+    inputSchema: {
+      type: "object",
+      required: ["draftNoteId", "decision"],
+      additionalProperties: true,
+      properties: {
+        actor: { type: "object" },
+        draftNoteId: { type: "string" },
+        decision: {
+          type: "string",
+          enum: [
+            "approve_draft",
+            "request_rewrite",
+            "require_merge",
+            "reject",
+            "escalate",
+            "set_promotion_ready"
+          ]
+        },
+        reviewNotes: { type: "string" }
       }
     }
   },

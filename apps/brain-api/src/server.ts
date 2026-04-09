@@ -1,9 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import type {
+  AcceptNoteRequest,
   ActorContext,
   ActorRole,
   AssembleContextPacketRequest,
+  ClassifyNoteIngressRequest,
   CreateSessionArchiveRequest,
   CreateRefreshDraftBatchRequest,
   CreateRefreshDraftRequest,
@@ -11,10 +13,14 @@ import type {
   ExecuteCodingTaskRequest,
   GetDecisionSummaryRequest,
   ImportResourceRequest,
+  ListReviewQueueRequest,
   ListContextTreeRequest,
   PromoteNoteRequest,
   QueryHistoryRequest,
+  ReadReviewNoteRequest,
   ReadContextNodeRequest,
+  RejectNoteRequest,
+  ReviewDraftNoteRequest,
   RetrieveContextRequest,
   ServiceError,
   ValidateNoteRequest
@@ -40,7 +46,13 @@ type RouteName =
   | "search-context"
   | "get-context-packet"
   | "fetch-decision-summary"
+  | "classify-note-ingress"
   | "draft-note"
+  | "review-draft-note"
+  | "list-review-queue"
+  | "read-review-note"
+  | "accept-note"
+  | "reject-note"
   | "create-refresh-draft"
   | "create-refresh-drafts"
   | "validate-note"
@@ -60,7 +72,13 @@ const DEFAULT_ACTOR_ROLE: Record<RouteName, ActorRole> = {
   "read-context-node": "retrieval",
   "get-context-packet": "retrieval",
   "fetch-decision-summary": "retrieval",
+  "classify-note-ingress": "writer",
   "draft-note": "writer",
+  "review-draft-note": "operator",
+  "list-review-queue": "operator",
+  "read-review-note": "operator",
+  "accept-note": "operator",
+  "reject-note": "operator",
   "create-refresh-draft": "operator",
   "create-refresh-drafts": "operator",
   "validate-note": "orchestrator",
@@ -86,7 +104,13 @@ const ROUTES: Record<string, { method: "GET" | "POST"; name?: RouteName; healthM
   "/v1/context/node": { method: "POST", name: "read-context-node" },
   "/v1/context/packet": { method: "POST", name: "get-context-packet" },
   "/v1/context/decision-summary": { method: "POST", name: "fetch-decision-summary" },
+  "/v1/notes/classify-ingress": { method: "POST", name: "classify-note-ingress" },
   "/v1/notes/drafts": { method: "POST", name: "draft-note" },
+  "/v1/notes/drafts/review": { method: "POST", name: "review-draft-note" },
+  "/v1/review/queue": { method: "POST", name: "list-review-queue" },
+  "/v1/review/note": { method: "POST", name: "read-review-note" },
+  "/v1/review/accept": { method: "POST", name: "accept-note" },
+  "/v1/review/reject": { method: "POST", name: "reject-note" },
   "/v1/system/freshness/refresh-draft": { method: "POST", name: "create-refresh-draft" },
   "/v1/system/freshness/refresh-drafts": { method: "POST", name: "create-refresh-drafts" },
   "/v1/notes/validate": { method: "POST", name: "validate-note" },
@@ -422,9 +446,51 @@ async function handleRequest(
       sendJson(response, result.ok ? 200 : mapServiceErrorToStatus(result.error), result);
       return;
     }
+    case "classify-note-ingress": {
+      const result = container.orchestrator.classifyNoteIngress(
+        normalizedRequest as unknown as ClassifyNoteIngressRequest
+      );
+      sendJson(response, 200, result);
+      return;
+    }
     case "draft-note": {
       const result = await container.orchestrator.draftNote(
         normalizedRequest as unknown as DraftNoteRequest
+      );
+      sendJson(response, result.ok ? 200 : mapServiceErrorToStatus(result.error), result);
+      return;
+    }
+    case "review-draft-note": {
+      const result = await container.orchestrator.reviewDraftNote(
+        normalizedRequest as unknown as ReviewDraftNoteRequest
+      );
+      sendJson(response, result.ok ? 200 : mapServiceErrorToStatus(result.error), result);
+      return;
+    }
+    case "list-review-queue": {
+      const result = await container.orchestrator.listReviewQueue(
+        normalizedRequest as unknown as ListReviewQueueRequest
+      );
+      sendJson(response, result.ok ? 200 : mapServiceErrorToStatus(result.error), result);
+      return;
+    }
+    case "read-review-note": {
+      const result = await container.orchestrator.readReviewNote(
+        normalizedRequest as unknown as ReadReviewNoteRequest
+      );
+      sendJson(response, result.ok ? 200 : mapServiceErrorToStatus(result.error), result);
+      return;
+    }
+    case "accept-note": {
+      const result = await container.orchestrator.acceptNote(
+        normalizedRequest as unknown as AcceptNoteRequest
+      );
+      sendJson(response, result.ok ? 200 : mapServiceErrorToStatus(result.error), result);
+      return;
+    }
+    case "reject-note": {
+      const result = await container.orchestrator.rejectNote(
+        normalizedRequest as unknown as RejectNoteRequest
       );
       sendJson(response, result.ok ? 200 : mapServiceErrorToStatus(result.error), result);
       return;

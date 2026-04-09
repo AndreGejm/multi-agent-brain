@@ -1,7 +1,8 @@
 # Running the system
 
-This repository exposes three Node entrypoints, one HTTP Docker compose profile,
-and one session-scoped Docker MCP profile.
+This repository exposes three Node entrypoints, two thin local review
+frontends, one HTTP Docker compose profile, and one session-scoped Docker MCP
+profile.
 
 ## Entrypoints
 
@@ -46,6 +47,59 @@ This is a stdio MCP server that uses Content-Length framing.
 
 If `corepack enable` cannot install a global `pnpm` shim on your machine, keep
 using the `corepack pnpm ...` form shown above.
+
+### Thin review frontends
+
+The repository now also includes two thin operator frontends over the governed
+review contract:
+
+- Windows Tkinter reviewer: `scripts/review-note-gui.py`
+- local Obsidian plugin: `integrations/obsidian/multi-agent-brain-review`
+
+These frontends are intentionally shells over the same backend commands:
+
+- `list-review-queue`
+- `read-review-note`
+- `accept-note`
+- `reject-note`
+
+They do not execute low-level review or promotion steps directly and do not move
+files themselves.
+
+#### Tkinter reviewer
+
+Launch on Windows with a working Python that includes Tkinter:
+
+```bash
+py -3 scripts/review-note-gui.py
+```
+
+Useful environment overrides:
+
+- `MAB_REVIEW_REPO_ROOT`
+- `MAB_REVIEW_NODE_EXECUTABLE`
+
+The script expects a built `brain-cli` and will fail fast if `apps/brain-cli/dist/main.js`
+or the configured Node executable cannot be found.
+
+This reviewer is documented and supported as a Windows-only local tool in the
+current repository state.
+
+#### Obsidian plugin
+
+Tracked plugin source:
+
+- `integrations/obsidian/multi-agent-brain-review`
+
+To use it locally:
+
+1. build the repo with `corepack pnpm build`
+2. copy the plugin folder into your vault under `.obsidian/plugins/multi-agent-brain-review`
+3. enable it in Obsidian
+4. set `Repo root` in plugin settings
+
+The plugin is desktop-only and intentionally has no baked-in machine-specific
+repo path.
 
 ### Docker compose profile
 

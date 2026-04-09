@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir as fsMkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir as fsMkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -490,6 +490,7 @@ test("brain-cli drafts notes through the staging service with JSON input", async
       title: "CLI Draft Policy",
       sourcePrompt: "Draft a CLI policy note.",
       supportingSources: [],
+      sourceBasis: ["repo_inspection"],
       bodyHints: ["CLI transport should remain thin."]
     }),
     "utf8"
@@ -512,6 +513,490 @@ test("brain-cli drafts notes through the staging service with JSON input", async
   assert.equal(payload.ok, true);
   assert.equal(payload.data.frontmatter.corpusId, "context_brain");
   assert.match(payload.data.draftPath, /^context_brain\//);
+  assert.doesNotMatch(payload.data.body, /\bTBD\.\b/i);
+  assert.match(payload.data.body, /CLI transport should remain thin/i);
+});
+
+test("brain-cli surfaces duplicate-gate merge candidates when a draft matches existing staging content", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mab-cli-draft-duplicate-"));
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const requestPath = path.join(root, "duplicate-draft-note.json");
+  await writeFile(
+    requestPath,
+    JSON.stringify({
+      targetCorpus: "general_notes",
+      noteType: "policy",
+      title: "CLI Duplicate Draft Gate",
+      sourcePrompt: "Draft the CLI duplicate gate policy.",
+      supportingSources: [],
+      sourceBasis: ["user_instruction"],
+      bodyHints: ["The CLI should surface duplicate drafts as merge candidates."],
+      frontmatterOverrides: {
+        scope: "governance/cli-duplicate-gate"
+      }
+    }),
+    "utf8"
+  );
+
+  const firstResult = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["draft-note", "--input", requestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(firstResult.exitCode, 0, firstResult.stderr);
+  const firstPayload = JSON.parse(firstResult.stdout);
+  assert.equal(firstPayload.ok, true);
+
+  const duplicateResult = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["draft-note", "--input", requestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(duplicateResult.exitCode, 1, duplicateResult.stderr);
+  const duplicatePayload = JSON.parse(duplicateResult.stdout);
+  assert.equal(duplicatePayload.ok, false);
+  assert.equal(duplicatePayload.error.code, "validation_failed");
+  assert.equal(
+    duplicatePayload.error.details.ingressDecision.action,
+    "merge_candidate"
+  );
+  assert.ok(
+    duplicatePayload.error.details.ingressDecision.mergeHints.some(
+      (hint) => hint.noteId === firstPayload.data.draftNoteId
+    )
+  );
+});
+
+test("brain-cli preserves chunk-level supporting provenance and normalized ingress metadata", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mab-cli-provenance-"));
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const supportingNoteId = randomUUID();
+  const requestPath = path.join(root, "draft-note-provenance.json");
+  await writeFile(
+    requestPath,
+    JSON.stringify({
+      targetCorpus: "general_notes",
+      noteType: "reference",
+      title: "CLI Provenance Preservation",
+      sourcePrompt: "Draft a reference note that should preserve chunk-level provenance through the CLI transport.",
+      candidateSummary: "CLI note ingress should preserve the candidate summary, normalized scope, and chunk-level supporting provenance.",
+      supportingSources: [
+        {
+          noteId: supportingNoteId,
+          chunkId: "chunk-cli-provenance-1",
+          notePath: "context_brain/reference/cli-provenance.md",
+          headingPath: ["Summary"],
+          excerpt: "Chunk-level evidence for the CLI draft."
+        }
+      ],
+      sourceBasis: ["retrieved_note"],
+      bodyHints: ["The CLI should preserve chunkId on supporting provenance."],
+      frontmatterOverrides: {
+        scope: "Governance/CLI Provenance"
+      }
+    }),
+    "utf8"
+  );
+
+  const result = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["draft-note", "--input", requestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.frontmatter.scope, "governance/cli-provenance");
+  assert.equal(
+    payload.data.frontmatter.summary,
+    "CLI note ingress should preserve the candidate summary, normalized scope, and chunk-level supporting provenance."
+  );
+
+  const { SqliteMetadataControlStore } = await import(
+    pathToFileURL(
+      path.join(process.cwd(), "packages", "infrastructure", "dist", "index.js")
+    ).href
+  );
+  const store = new SqliteMetadataControlStore(path.join(root, "state", "multi-agent-brain.sqlite"));
+
+  try {
+    const provenance = await store.getNoteProvenance(payload.data.draftNoteId);
+    assert.ok(
+      provenance.some(
+        (entry) =>
+          entry.sourceNoteId === supportingNoteId &&
+          entry.chunkId === "chunk-cli-provenance-1"
+      )
+    );
+  } finally {
+    store.close();
+  }
+});
+
+test("brain-cli classifies note ingress through the shared governed contract surface", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mab-cli-classify-note-"));
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const requestPath = path.join(root, "classify-note-ingress.json");
+  await writeFile(
+    requestPath,
+    JSON.stringify({
+      targetCorpus: "general_notes",
+      noteType: "policy",
+      title: "CLI Classified Policy",
+      sourcePrompt: "Classify a policy draft before staging admission.",
+      supportingSources: [],
+      bodyHints: ["Policy drafts should require review before promotion."],
+      scopeHint: "governance/cli-classify",
+      sourceBasis: ["user_instruction", "session_synthesis"]
+    }),
+    "utf8"
+  );
+
+  const result = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["classify-note-ingress", "--input", requestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.contractVersion, "note-ingress.v1");
+  assert.equal(payload.action, "draft_candidate");
+  assert.equal(payload.requiredTemplate, "policy.v1");
+  assert.equal(payload.reviewRequired, true);
+});
+
+test("brain-cli can classify note ingress without explicit noteType or targetCorpus hints", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mab-cli-classify-inferred-"));
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const requestPath = path.join(root, "classify-note-ingress-inferred.json");
+  await writeFile(
+    requestPath,
+    JSON.stringify({
+      title: "Governed Promotion Policy",
+      sourcePrompt: "Classify the governance policy that defines promotion readiness for staged drafts.",
+      supportingSources: [],
+      bodyHints: ["Promotion-ready notes must pass through explicit review."],
+      scopeHint: "governance/promotion-policy",
+      sourceBasis: ["user_instruction"]
+    }),
+    "utf8"
+  );
+
+  const result = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["classify-note-ingress", "--input", requestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.noteType, "policy");
+  assert.equal(payload.targetCorpus, "general_notes");
+  assert.equal(payload.requiredTemplate, "policy.v1");
+});
+
+test("brain-cli exposes first-class review frontend commands", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mab-cli-review-contract-"));
+
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const queueResult = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["list-review-queue", "--json", JSON.stringify({})],
+    cliEnvironment(root)
+  );
+
+  assert.equal(queueResult.exitCode, 0, queueResult.stderr);
+  const queuePayload = JSON.parse(queueResult.stdout);
+  assert.equal(queuePayload.ok, true);
+  assert.ok(Array.isArray(queuePayload.data.items));
+});
+
+test("brain-cli accepts and rejects review notes through first-class frontend commands", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mab-cli-review-actions-"));
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const draftRequestPath = path.join(root, "draft-review-action-note.json");
+  await writeFile(
+    draftRequestPath,
+    JSON.stringify({
+      targetCorpus: "general_notes",
+      noteType: "handoff",
+      title: "CLI Frontend Review Action Note",
+      sourcePrompt: "Draft a note so the thin review frontend commands can accept or reject it.",
+      supportingSources: [],
+      sourceBasis: ["user_instruction"],
+      frontmatterOverrides: {
+        scope: "project/review-frontend-contract"
+      }
+    }),
+    "utf8"
+  );
+
+  const draftResult = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["draft-note", "--input", draftRequestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(draftResult.exitCode, 0, draftResult.stderr);
+  const draftPayload = JSON.parse(draftResult.stdout);
+  assert.equal(draftPayload.ok, true);
+
+  const readRequestPath = path.join(root, "read-review-note.json");
+  await writeFile(
+    readRequestPath,
+    JSON.stringify({
+      draftNoteId: draftPayload.data.draftNoteId
+    }),
+    "utf8"
+  );
+
+  const readResult = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["read-review-note", "--input", readRequestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(readResult.exitCode, 0, readResult.stderr);
+  const readPayload = JSON.parse(readResult.stdout);
+  assert.equal(readPayload.ok, true);
+  assert.equal(readPayload.data.draftNoteId, draftPayload.data.draftNoteId);
+  assert.match(readPayload.data.body, /thin review frontend commands/i);
+
+  const rejectRequestPath = path.join(root, "reject-review-note.json");
+  await writeFile(
+    rejectRequestPath,
+    JSON.stringify({
+      draftNoteId: draftPayload.data.draftNoteId,
+      reviewNotes: "Rejected through the thin frontend contract."
+    }),
+    "utf8"
+  );
+
+  const rejectResult = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["reject-note", "--input", rejectRequestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(rejectResult.exitCode, 0, rejectResult.stderr);
+  const rejectPayload = JSON.parse(rejectResult.stdout);
+  assert.equal(rejectPayload.ok, true);
+  assert.equal(rejectPayload.data.finalReviewState, "rejected");
+  assert.match(rejectPayload.data.archivedPath, /_rejected/i);
+
+  const queueAfterRejectResult = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["list-review-queue", "--json", JSON.stringify({ targetCorpus: "general_notes" })],
+    cliEnvironment(root)
+  );
+
+  assert.equal(queueAfterRejectResult.exitCode, 0, queueAfterRejectResult.stderr);
+  const queueAfterRejectPayload = JSON.parse(queueAfterRejectResult.stdout);
+  assert.equal(queueAfterRejectPayload.ok, true);
+  assert.equal(
+    queueAfterRejectPayload.data.items.some((item) => item.draftNoteId === draftPayload.data.draftNoteId),
+    false
+  );
+
+  const secondDraftRequestPath = path.join(root, "draft-accept-note.json");
+  await writeFile(
+    secondDraftRequestPath,
+    JSON.stringify({
+      targetCorpus: "general_notes",
+      noteType: "handoff",
+      title: "CLI Frontend Accept Note",
+      sourcePrompt: "Draft a note so the thin review frontend command can accept it into canonical memory.",
+      supportingSources: [],
+      sourceBasis: ["user_instruction"],
+      frontmatterOverrides: {
+        scope: "project/review-frontend-accept"
+      }
+    }),
+    "utf8"
+  );
+
+  const secondDraftResult = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["draft-note", "--input", secondDraftRequestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(secondDraftResult.exitCode, 0, secondDraftResult.stderr);
+  const secondDraftPayload = JSON.parse(secondDraftResult.stdout);
+  assert.equal(secondDraftPayload.ok, true);
+
+  const acceptRequestPath = path.join(root, "accept-review-note.json");
+  await writeFile(
+    acceptRequestPath,
+    JSON.stringify({
+      draftNoteId: secondDraftPayload.data.draftNoteId
+    }),
+    "utf8"
+  );
+
+  const acceptResult = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["accept-note", "--input", acceptRequestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(acceptResult.exitCode, 0, acceptResult.stderr);
+  const acceptPayload = JSON.parse(acceptResult.stdout);
+  assert.equal(acceptPayload.ok, true);
+  assert.equal(acceptPayload.data.accepted, true);
+  assert.ok(typeof acceptPayload.data.promotedNoteId === "string");
+  assert.match(acceptPayload.data.canonicalPath, /^general_notes\//);
+  assert.match(acceptPayload.data.archivedDraftPath, /_promoted/i);
+  assert.ok(Array.isArray(acceptPayload.data.steps));
+  assert.equal(
+    acceptPayload.data.steps.some((step) => step.step === "promote_note" && step.status === "succeeded"),
+    true
+  );
+});
+
+test("the Tkinter reviewer script stays a thin shell over first-class review commands", async () => {
+  const scriptPath = path.join(process.cwd(), "scripts", "review-note-gui.py");
+  const scriptSource = await readFile(scriptPath, "utf8");
+
+  assert.match(scriptSource, /list-review-queue/);
+  assert.match(scriptSource, /read-review-note/);
+  assert.match(scriptSource, /accept-note/);
+  assert.match(scriptSource, /reject-note/);
+  assert.match(scriptSource, /Refresh/);
+  assert.match(scriptSource, /MAB_REVIEW_REPO_ROOT/);
+  assert.match(scriptSource, /MAB_REVIEW_NODE_EXECUTABLE/);
+  assert.match(scriptSource, /FileNotFoundError/);
+  assert.doesNotMatch(scriptSource, /review-draft-note/);
+  assert.doesNotMatch(scriptSource, /promote-note/);
+});
+
+test("the Obsidian review plugin stays a thin shell over first-class review commands", async () => {
+  const pluginRoot = path.join(
+    process.cwd(),
+    "integrations",
+    "obsidian",
+    "multi-agent-brain-review"
+  );
+  const manifest = JSON.parse(
+    await readFile(path.join(pluginRoot, "manifest.json"), "utf8")
+  );
+  const mainSource = await readFile(path.join(pluginRoot, "main.js"), "utf8");
+  const readme = await readFile(path.join(pluginRoot, "README.md"), "utf8");
+
+  assert.equal(manifest.id, "multi-agent-brain-review");
+  assert.equal(manifest.isDesktopOnly, true);
+  assert.match(mainSource, /list-review-queue/);
+  assert.match(mainSource, /read-review-note/);
+  assert.match(mainSource, /accept-note/);
+  assert.match(mainSource, /reject-note/);
+  assert.match(mainSource, /Refresh/);
+  assert.match(mainSource, /repoRoot:\s*""/);
+  assert.doesNotMatch(mainSource, /F:\\\\Dev\\\\scripts\\\\MultiagentBrain\\\\multi-agent-brain/);
+  assert.match(readme, /Repo root/i);
+  assert.doesNotMatch(mainSource, /review-draft-note/);
+  assert.doesNotMatch(mainSource, /promote-note/);
+});
+
+test("brain-cli reviews staged drafts through the governed review workflow", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mab-cli-review-note-"));
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const draftRequestPath = path.join(root, "draft-reviewable-note.json");
+  await writeFile(
+    draftRequestPath,
+    JSON.stringify({
+      targetCorpus: "general_notes",
+      noteType: "policy",
+      title: "CLI Reviewed Policy",
+      sourcePrompt: "Draft a policy note that must pass the governed review flow.",
+      supportingSources: [],
+      sourceBasis: ["user_instruction"],
+      frontmatterOverrides: {
+        scope: "governance/cli-reviewed-policy"
+      }
+    }),
+    "utf8"
+  );
+
+  const draftResult = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["draft-note", "--input", draftRequestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(draftResult.exitCode, 0, draftResult.stderr);
+  const draftPayload = JSON.parse(draftResult.stdout);
+  assert.equal(draftPayload.ok, true);
+
+  const approveRequestPath = path.join(root, "approve-draft-note.json");
+  await writeFile(
+    approveRequestPath,
+    JSON.stringify({
+      draftNoteId: draftPayload.data.draftNoteId,
+      decision: "approve_draft",
+      reviewNotes: "Initial governed review completed."
+    }),
+    "utf8"
+  );
+
+  const approveResult = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["review-draft-note", "--input", approveRequestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(approveResult.exitCode, 0, approveResult.stderr);
+  const approvePayload = JSON.parse(approveResult.stdout);
+  assert.equal(approvePayload.ok, true);
+  assert.equal(approvePayload.data.reviewState, "approved_draft");
+
+  const reviewRequestPath = path.join(root, "review-draft-note.json");
+  await writeFile(
+    reviewRequestPath,
+    JSON.stringify({
+      draftNoteId: draftPayload.data.draftNoteId,
+      decision: "set_promotion_ready",
+      reviewNotes: "Reviewed and cleared for governed promotion."
+    }),
+    "utf8"
+  );
+
+  const reviewResult = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["review-draft-note", "--input", reviewRequestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(reviewResult.exitCode, 0, reviewResult.stderr);
+  const reviewPayload = JSON.parse(reviewResult.stdout);
+  assert.equal(reviewPayload.ok, true);
+  assert.equal(reviewPayload.data.reviewState, "promotion_ready");
+  assert.equal(reviewPayload.data.promotionEligible, true);
+  assert.equal(reviewPayload.data.reviewedByActorRole, "operator");
 });
 
 test("brain-cli exposes direct context-packet assembly as a thin transport command", async (t) => {
@@ -1312,6 +1797,63 @@ test("brain-api creates governed refresh drafts through the temporal freshness r
   assert.equal(payload.data.sourceNoteId, seeded.noteId);
   assert.equal(payload.data.sourceState, "expired");
   assert.deepEqual(payload.data.frontmatter.supersedes, [seeded.noteId]);
+});
+
+test("brain-api exposes note ingress classification over HTTP", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mab-api-classify-note-"));
+  const { createBrainApiServer } = await import(
+    pathToFileURL(
+      path.join(process.cwd(), "apps", "brain-api", "dist", "server.js")
+    ).href
+  );
+
+  const api = createBrainApiServer({
+    nodeEnv: "test",
+    vaultRoot: path.join(root, "vault", "canonical"),
+    stagingRoot: path.join(root, "vault", "staging"),
+    sqlitePath: path.join(root, "state", "multi-agent-brain.sqlite"),
+    qdrantUrl: "http://127.0.0.1:6333",
+    qdrantCollection: `context_brain_chunks_${randomUUID().slice(0, 8)}`,
+    embeddingProvider: "hash",
+    reasoningProvider: "heuristic",
+    draftingProvider: "disabled",
+    rerankerProvider: "local",
+    apiHost: "127.0.0.1",
+    apiPort: 0,
+    logLevel: "error"
+  });
+
+  t.after(async () => {
+    await api.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  await api.listen();
+  const baseUrl = apiBaseUrl(api);
+
+  const response = await fetch(`${baseUrl}/v1/notes/classify-ingress`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      targetCorpus: "context_brain",
+      noteType: "policy",
+      title: "HTTP Classified Policy",
+      sourcePrompt: "Classify an HTTP policy draft before staging.",
+      supportingSources: [],
+      sourceBasis: ["session_synthesis"],
+      currentStateIntent: true,
+      scopeHint: "governance/http-current-state"
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.contractVersion, "note-ingress.v1");
+  assert.equal(payload.action, "escalate");
+  assert.equal(payload.authorityRisk, "critical");
+  assert.equal(payload.reviewRequired, true);
 });
 
 test("brain-api exposes direct context-packet assembly over HTTP", async (t) => {
@@ -2166,6 +2708,14 @@ async function seedCanonicalTemporalNotes(root, inputs) {
       });
 
       assert.equal(draft.ok, true);
+      const reviewed = await container.services.draftReviewService.reviewDraft({
+        actor: testActor("operator"),
+        draftNoteId: draft.data.draftNoteId,
+        decision: "set_promotion_ready",
+        reviewNotes: "Approved in the transport test harness for governed promotion."
+      });
+
+      assert.equal(reviewed.ok, true);
 
       const promoted = await container.services.promotionOrchestratorService.promoteDraft({
         actor: testActor("orchestrator"),

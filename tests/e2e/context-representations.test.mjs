@@ -27,6 +27,14 @@ test("promotion regenerates derived L0 and L1 context representations", async (t
   });
 
   assert.equal(draft.ok, true);
+  const reviewed = await container.services.draftReviewService.reviewDraft({
+    actor: actor("operator"),
+    draftNoteId: draft.data.draftNoteId,
+    decision: "set_promotion_ready",
+    reviewNotes: "Approved in the context-representation test harness."
+  });
+
+  assert.equal(reviewed.ok, true);
 
   const promoted = await container.services.promotionOrchestratorService.promoteDraft({
     actor: actor("orchestrator"),

@@ -21,7 +21,13 @@ CLI adapter over the shared runtime container.
 - `read-context-node`
 - `get-context-packet`
 - `fetch-decision-summary`
+- `classify-note-ingress`
 - `draft-note`
+- `review-draft-note`
+- `list-review-queue`
+- `read-review-note`
+- `accept-note`
+- `reject-note`
 - `create-refresh-draft`
 - `create-refresh-drafts`
 - `validate-note`
@@ -40,9 +46,9 @@ CLI adapter over the shared runtime container.
 ## Run
 
 ```bash
-pnpm cli -- version
-pnpm cli -- auth-status
-pnpm cli -- list-context-tree --json "{\"ownerScope\":\"context_brain\",\"authorityStates\":[\"canonical\",\"staging\"]}"
+corepack pnpm cli -- version
+corepack pnpm cli -- auth-status
+corepack pnpm cli -- list-review-queue --json "{}"
 ```
 
 ## Canonical docs

@@ -8,7 +8,7 @@ import test from "node:test";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-test("brain-mcp serves initialize, tools/list, list_context_tree, read_context_node, get_context_packet, and validate_note over stdio MCP framing", async (t) => {
+test("brain-mcp serves initialize, tools/list, classify_note_ingress, list_context_tree, read_context_node, get_context_packet, and validate_note over stdio MCP framing", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mab-mcp-"));
   const canonical = await seedCanonicalTemporalNote(root, {
     title: "MCP Namespace Canonical Node",
@@ -87,6 +87,8 @@ test("brain-mcp serves initialize, tools/list, list_context_tree, read_context_n
     params: {}
   });
   const listResponse = await transport.next();
+  assert.ok(listResponse.result.tools.some((tool) => tool.name === "classify_note_ingress"));
+  assert.ok(listResponse.result.tools.some((tool) => tool.name === "review_draft_note"));
   assert.ok(listResponse.result.tools.some((tool) => tool.name === "validate_note"));
   assert.ok(listResponse.result.tools.some((tool) => tool.name === "get_context_packet"));
   assert.ok(listResponse.result.tools.some((tool) => tool.name === "create_refresh_draft"));
@@ -195,10 +197,34 @@ test("brain-mcp serves initialize, tools/list, list_context_tree, read_context_n
   assert.equal(packetResponse.result.structuredContent.packet.packetType, "implementation");
   assert.equal(packetResponse.result.structuredContent.packet.evidence[0].noteId, "note-mcp-1");
 
-  const noteId = randomUUID();
   writeMcpMessage(child.stdin, {
     jsonrpc: "2.0",
     id: 6,
+    method: "tools/call",
+    params: {
+      name: "classify_note_ingress",
+      arguments: {
+        targetCorpus: "context_brain",
+        noteType: "policy",
+        title: "MCP Classified Policy",
+        sourcePrompt: "Classify an MCP policy draft before staging.",
+        supportingSources: [],
+        sourceBasis: ["session_synthesis"],
+        currentStateIntent: true,
+        scopeHint: "governance/mcp-current-state"
+      }
+    }
+  });
+
+  const classifyResponse = await transport.next();
+  assert.equal(classifyResponse.result.isError, false);
+  assert.equal(classifyResponse.result.structuredContent.action, "escalate");
+  assert.equal(classifyResponse.result.structuredContent.authorityRisk, "critical");
+
+  const noteId = randomUUID();
+  writeMcpMessage(child.stdin, {
+    jsonrpc: "2.0",
+    id: 7,
     method: "tools/call",
     params: {
       name: "validate_note",
@@ -235,7 +261,7 @@ test("brain-mcp serves initialize, tools/list, list_context_tree, read_context_n
 
   writeMcpMessage(child.stdin, {
     jsonrpc: "2.0",
-    id: 7,
+    id: 8,
     method: "tools/call",
     params: {
       name: "execute_coding_task",
@@ -817,7 +843,7 @@ async function seedCanonicalTemporalNote(root, input) {
   });
 
   try {
-    const draft = await container.services.stagingDraftService.createDraft({
+  const draft = await container.services.stagingDraftService.createDraft({
       actor: testActor("writer"),
       targetCorpus: "context_brain",
       noteType: "reference",
@@ -833,11 +859,19 @@ async function seedCanonicalTemporalNote(root, input) {
         validFrom: input.validFrom,
         validUntil: input.validUntil
       }
-    });
+  });
 
-    assert.equal(draft.ok, true);
+  assert.equal(draft.ok, true);
+  const reviewed = await container.services.draftReviewService.reviewDraft({
+    actor: testActor("operator"),
+    draftNoteId: draft.data.draftNoteId,
+    decision: "set_promotion_ready",
+    reviewNotes: "Approved in the MCP adapter test harness."
+  });
 
-    const promoted = await container.services.promotionOrchestratorService.promoteDraft({
+  assert.equal(reviewed.ok, true);
+
+  const promoted = await container.services.promotionOrchestratorService.promoteDraft({
       actor: testActor("orchestrator"),
       draftNoteId: draft.data.draftNoteId,
       targetCorpus: "context_brain",

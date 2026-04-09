@@ -3,6 +3,8 @@ import { DatabaseSync } from "node:sqlite";
 import type {
   MetadataControlStore,
   MetadataNoteRecord,
+  MetadataNoteReviewUpdate,
+  NoteProvenanceRecord,
   PromotionDecisionRecord,
   PromotionOutboxPayload,
   PromotionOutboxRecord,
@@ -40,6 +42,8 @@ export class SqliteMetadataControlStore implements MetadataControlStore {
   }
 
   async upsertNote(note: MetadataNoteRecord): Promise<void> {
+    const existing = await this.getNote(note.noteId);
+    assertImmutableGovernanceMetadata(existing, note);
     const insertNote = this.database.prepare(`
       INSERT INTO notes (
         note_id,
@@ -55,7 +59,23 @@ export class SqliteMetadataControlStore implements MetadataControlStore {
         summary,
         scope,
         content_hash,
-        semantic_signature
+        semantic_signature,
+        authority_risk,
+        review_state,
+        review_required,
+        promotion_eligible,
+        submitted_by_actor_id,
+        submitted_by_actor_role,
+        submitted_at,
+        reviewed_by_actor_id,
+        reviewed_by_actor_role,
+        review_timestamp,
+        reviewed_revision,
+        review_decision,
+        review_notes,
+        classification_hash,
+        policy_version,
+        template_id
       ) VALUES (
         :noteId,
         :corpusId,
@@ -70,7 +90,23 @@ export class SqliteMetadataControlStore implements MetadataControlStore {
         :summary,
         :scope,
         :contentHash,
-        :semanticSignature
+        :semanticSignature,
+        :authorityRisk,
+        :reviewState,
+        :reviewRequired,
+        :promotionEligible,
+        :submittedByActorId,
+        :submittedByActorRole,
+        :submittedAt,
+        :reviewedByActorId,
+        :reviewedByActorRole,
+        :reviewTimestamp,
+        :reviewedRevision,
+        :reviewDecision,
+        :reviewNotes,
+        :classificationHash,
+        :policyVersion,
+        :templateId
       )
       ON CONFLICT(note_id) DO UPDATE SET
         corpus_id = excluded.corpus_id,
@@ -85,7 +121,23 @@ export class SqliteMetadataControlStore implements MetadataControlStore {
         summary = excluded.summary,
         scope = excluded.scope,
         content_hash = excluded.content_hash,
-        semantic_signature = excluded.semantic_signature
+        semantic_signature = excluded.semantic_signature,
+        authority_risk = COALESCE(excluded.authority_risk, notes.authority_risk),
+        review_state = COALESCE(excluded.review_state, notes.review_state),
+        review_required = COALESCE(excluded.review_required, notes.review_required),
+        promotion_eligible = COALESCE(excluded.promotion_eligible, notes.promotion_eligible),
+        submitted_by_actor_id = COALESCE(excluded.submitted_by_actor_id, notes.submitted_by_actor_id),
+        submitted_by_actor_role = COALESCE(excluded.submitted_by_actor_role, notes.submitted_by_actor_role),
+        submitted_at = COALESCE(excluded.submitted_at, notes.submitted_at),
+        reviewed_by_actor_id = COALESCE(excluded.reviewed_by_actor_id, notes.reviewed_by_actor_id),
+        reviewed_by_actor_role = COALESCE(excluded.reviewed_by_actor_role, notes.reviewed_by_actor_role),
+        review_timestamp = COALESCE(excluded.review_timestamp, notes.review_timestamp),
+        reviewed_revision = COALESCE(excluded.reviewed_revision, notes.reviewed_revision),
+        review_decision = COALESCE(excluded.review_decision, notes.review_decision),
+        review_notes = COALESCE(excluded.review_notes, notes.review_notes),
+        classification_hash = COALESCE(excluded.classification_hash, notes.classification_hash),
+        policy_version = COALESCE(excluded.policy_version, notes.policy_version),
+        template_id = COALESCE(excluded.template_id, notes.template_id)
     `);
     const deleteTags = this.database.prepare(`DELETE FROM note_tags WHERE note_id = ?`);
     const insertTag = this.database.prepare(`
@@ -110,7 +162,23 @@ export class SqliteMetadataControlStore implements MetadataControlStore {
         summary: note.summary ?? null,
         scope: note.scope ?? null,
         contentHash: note.contentHash ?? null,
-        semanticSignature: note.semanticSignature ?? null
+        semanticSignature: note.semanticSignature ?? null,
+        authorityRisk: note.authorityRisk ?? null,
+        reviewState: note.reviewState ?? null,
+        reviewRequired: note.reviewRequired === undefined ? null : note.reviewRequired ? 1 : 0,
+        promotionEligible: note.promotionEligible === undefined ? null : note.promotionEligible ? 1 : 0,
+        submittedByActorId: note.submittedByActorId ?? null,
+        submittedByActorRole: note.submittedByActorRole ?? null,
+        submittedAt: note.submittedAt ?? null,
+        reviewedByActorId: note.reviewedByActorId ?? null,
+        reviewedByActorRole: note.reviewedByActorRole ?? null,
+        reviewTimestamp: note.reviewTimestamp ?? null,
+        reviewedRevision: note.reviewedRevision ?? null,
+        reviewDecision: note.reviewDecision ?? null,
+        reviewNotes: note.reviewNotes ?? null,
+        classificationHash: note.classificationHash ?? null,
+        policyVersion: note.policyVersion ?? null,
+        templateId: note.templateId ?? null
       });
 
       deleteTags.run(note.noteId);
@@ -123,6 +191,162 @@ export class SqliteMetadataControlStore implements MetadataControlStore {
       this.database.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  async getNote(noteId: string): Promise<MetadataNoteRecord | null> {
+    const row = this.database.prepare(`
+      SELECT
+        note_id,
+        corpus_id,
+        note_path,
+        note_type,
+        lifecycle_state,
+        revision,
+        updated_at,
+        current_state,
+        valid_from,
+        valid_until,
+        summary,
+        scope,
+        content_hash,
+        semantic_signature,
+        authority_risk,
+        review_state,
+        review_required,
+        promotion_eligible,
+        submitted_by_actor_id,
+        submitted_by_actor_role,
+        submitted_at,
+        reviewed_by_actor_id,
+        reviewed_by_actor_role,
+        review_timestamp,
+        reviewed_revision,
+        review_decision,
+        review_notes,
+        classification_hash,
+        policy_version,
+        template_id
+      FROM notes
+      WHERE note_id = ?
+      LIMIT 1
+    `).get(noteId) as SqliteNoteRow | undefined;
+
+    return row ? this.mapNoteRow(row) : null;
+  }
+
+  async updateNoteReview(note: MetadataNoteReviewUpdate): Promise<MetadataNoteRecord | null> {
+    this.database.prepare(`
+      UPDATE notes
+      SET review_state = :reviewState,
+          review_required = :reviewRequired,
+          promotion_eligible = :promotionEligible,
+          reviewed_by_actor_id = :reviewedByActorId,
+          reviewed_by_actor_role = :reviewedByActorRole,
+          review_timestamp = :reviewTimestamp,
+          reviewed_revision = :reviewedRevision,
+          review_decision = :reviewDecision,
+          review_notes = :reviewNotes
+      WHERE note_id = :noteId
+    `).run({
+      noteId: note.noteId,
+      reviewState: note.reviewState,
+      reviewRequired: note.reviewRequired ? 1 : 0,
+      promotionEligible: note.promotionEligible ? 1 : 0,
+      reviewedByActorId: note.reviewedByActorId ?? null,
+      reviewedByActorRole: note.reviewedByActorRole ?? null,
+      reviewTimestamp: note.reviewTimestamp ?? null,
+      reviewedRevision: note.reviewedRevision ?? null,
+      reviewDecision: note.reviewDecision ?? null,
+      reviewNotes: note.reviewNotes ?? null
+    });
+
+    return this.getNote(note.noteId);
+  }
+
+  async replaceNoteProvenance(noteId: string, provenance: NoteProvenanceRecord[]): Promise<void> {
+    const existingNote = await this.getNote(noteId);
+    const existingProvenance = existingNote ? await this.getNoteProvenance(noteId) : [];
+    assertImmutableDraftProvenance(existingNote, existingProvenance, provenance);
+
+    const deleteProvenance = this.database.prepare(`
+      DELETE FROM note_provenance
+      WHERE note_id = ?
+    `);
+    const insertProvenance = this.database.prepare(`
+      INSERT INTO note_provenance (
+        note_id,
+        ordinal,
+        source_basis,
+        source_note_id,
+        source_note_path,
+        heading_path_json,
+        chunk_id,
+        excerpt,
+        recorded_at
+      ) VALUES (
+        :noteId,
+        :ordinal,
+        :sourceBasis,
+        :sourceNoteId,
+        :sourceNotePath,
+        :headingPathJson,
+        :chunkId,
+        :excerpt,
+        :recordedAt
+      )
+    `);
+
+    this.database.exec("BEGIN");
+    try {
+      deleteProvenance.run(noteId);
+      for (const entry of provenance) {
+        insertProvenance.run({
+          noteId,
+          ordinal: entry.ordinal,
+          sourceBasis: entry.sourceBasis,
+          sourceNoteId: entry.sourceNoteId ?? null,
+          sourceNotePath: entry.sourceNotePath ?? null,
+          headingPathJson: entry.headingPath ? JSON.stringify(entry.headingPath) : null,
+          chunkId: entry.chunkId ?? null,
+          excerpt: entry.excerpt ?? null,
+          recordedAt: entry.recordedAt
+        });
+      }
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async getNoteProvenance(noteId: string): Promise<NoteProvenanceRecord[]> {
+    const rows = this.database.prepare(`
+      SELECT
+        note_id,
+        ordinal,
+        source_basis,
+        source_note_id,
+        source_note_path,
+        heading_path_json,
+        chunk_id,
+        excerpt,
+        recorded_at
+      FROM note_provenance
+      WHERE note_id = ?
+      ORDER BY ordinal ASC
+    `).all(noteId) as unknown as SqliteNoteProvenanceRow[];
+
+    return rows.map((row) => ({
+      noteId: row.note_id,
+      ordinal: row.ordinal,
+      sourceBasis: row.source_basis,
+      sourceNoteId: row.source_note_id ?? undefined,
+      sourceNotePath: row.source_note_path ?? undefined,
+      headingPath: row.heading_path_json ? JSON.parse(row.heading_path_json) : undefined,
+      chunkId: row.chunk_id ?? undefined,
+      excerpt: row.excerpt ?? undefined,
+      recordedAt: row.recorded_at
+    }));
   }
 
   async upsertChunks(chunks: ChunkRecord[]): Promise<void> {
@@ -356,7 +580,23 @@ export class SqliteMetadataControlStore implements MetadataControlStore {
         summary,
         scope,
         content_hash,
-        semantic_signature
+        semantic_signature,
+        authority_risk,
+        review_state,
+        review_required,
+        promotion_eligible,
+        submitted_by_actor_id,
+        submitted_by_actor_role,
+        submitted_at,
+        reviewed_by_actor_id,
+        reviewed_by_actor_role,
+        review_timestamp,
+        reviewed_revision,
+        review_decision,
+        review_notes,
+        classification_hash,
+        policy_version,
+        template_id
       FROM notes
       WHERE corpus_id = :corpusId
         AND (
@@ -822,7 +1062,23 @@ export class SqliteMetadataControlStore implements MetadataControlStore {
         summary TEXT,
         scope TEXT,
         content_hash TEXT,
-        semantic_signature TEXT
+        semantic_signature TEXT,
+        authority_risk TEXT,
+        review_state TEXT,
+        review_required INTEGER,
+        promotion_eligible INTEGER,
+        submitted_by_actor_id TEXT,
+        submitted_by_actor_role TEXT,
+        submitted_at TEXT,
+        reviewed_by_actor_id TEXT,
+        reviewed_by_actor_role TEXT,
+        review_timestamp TEXT,
+        reviewed_revision TEXT,
+        review_decision TEXT,
+        review_notes TEXT,
+        classification_hash TEXT,
+        policy_version TEXT,
+        template_id TEXT
       );
 
       CREATE TABLE IF NOT EXISTS note_tags (
@@ -839,6 +1095,20 @@ export class SqliteMetadataControlStore implements MetadataControlStore {
         PRIMARY KEY (source_note_id, target_note_id, relationship_type),
         FOREIGN KEY (source_note_id) REFERENCES notes(note_id) ON DELETE CASCADE,
         FOREIGN KEY (target_note_id) REFERENCES notes(note_id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS note_provenance (
+        note_id TEXT NOT NULL,
+        ordinal INTEGER NOT NULL,
+        source_basis TEXT NOT NULL,
+        source_note_id TEXT,
+        source_note_path TEXT,
+        heading_path_json TEXT,
+        chunk_id TEXT,
+        excerpt TEXT,
+        recorded_at TEXT NOT NULL,
+        PRIMARY KEY (note_id, ordinal),
+        FOREIGN KEY (note_id) REFERENCES notes(note_id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS chunks (
@@ -918,6 +1188,7 @@ export class SqliteMetadataControlStore implements MetadataControlStore {
       CREATE INDEX IF NOT EXISTS idx_notes_corpus_id ON notes(corpus_id);
       CREATE INDEX IF NOT EXISTS idx_notes_content_hash ON notes(content_hash);
       CREATE INDEX IF NOT EXISTS idx_notes_semantic_signature ON notes(semantic_signature);
+      CREATE INDEX IF NOT EXISTS idx_note_provenance_note_id ON note_provenance(note_id);
       CREATE INDEX IF NOT EXISTS idx_chunks_note_id ON chunks(note_id);
       CREATE INDEX IF NOT EXISTS idx_chunks_corpus_id ON chunks(corpus_id);
       CREATE INDEX IF NOT EXISTS idx_promotion_events_promoted_at ON promotion_events(promoted_at);
@@ -927,6 +1198,22 @@ export class SqliteMetadataControlStore implements MetadataControlStore {
 
     ensureColumnExists(this.database, "notes", "valid_from", "TEXT");
     ensureColumnExists(this.database, "notes", "valid_until", "TEXT");
+    ensureColumnExists(this.database, "notes", "authority_risk", "TEXT");
+    ensureColumnExists(this.database, "notes", "review_state", "TEXT");
+    ensureColumnExists(this.database, "notes", "review_required", "INTEGER");
+    ensureColumnExists(this.database, "notes", "promotion_eligible", "INTEGER");
+    ensureColumnExists(this.database, "notes", "submitted_by_actor_id", "TEXT");
+    ensureColumnExists(this.database, "notes", "submitted_by_actor_role", "TEXT");
+    ensureColumnExists(this.database, "notes", "submitted_at", "TEXT");
+    ensureColumnExists(this.database, "notes", "reviewed_by_actor_id", "TEXT");
+    ensureColumnExists(this.database, "notes", "reviewed_by_actor_role", "TEXT");
+    ensureColumnExists(this.database, "notes", "review_timestamp", "TEXT");
+    ensureColumnExists(this.database, "notes", "reviewed_revision", "TEXT");
+    ensureColumnExists(this.database, "notes", "review_decision", "TEXT");
+    ensureColumnExists(this.database, "notes", "review_notes", "TEXT");
+    ensureColumnExists(this.database, "notes", "classification_hash", "TEXT");
+    ensureColumnExists(this.database, "notes", "policy_version", "TEXT");
+    ensureColumnExists(this.database, "notes", "template_id", "TEXT");
     ensureColumnExists(this.database, "chunks", "valid_from", "TEXT");
     ensureColumnExists(this.database, "chunks", "valid_until", "TEXT");
   }
@@ -1019,6 +1306,26 @@ export class SqliteMetadataControlStore implements MetadataControlStore {
       scope: row.scope ?? undefined,
       contentHash: row.content_hash ?? undefined,
       semanticSignature: row.semantic_signature ?? undefined,
+      authorityRisk: row.authority_risk ?? undefined,
+      reviewState: row.review_state ?? undefined,
+      reviewRequired: row.review_required === null || row.review_required === undefined
+        ? undefined
+        : row.review_required === 1,
+      promotionEligible: row.promotion_eligible === null || row.promotion_eligible === undefined
+        ? undefined
+        : row.promotion_eligible === 1,
+      submittedByActorId: row.submitted_by_actor_id ?? undefined,
+      submittedByActorRole: row.submitted_by_actor_role ?? undefined,
+      submittedAt: row.submitted_at ?? undefined,
+      reviewedByActorId: row.reviewed_by_actor_id ?? undefined,
+      reviewedByActorRole: row.reviewed_by_actor_role ?? undefined,
+      reviewTimestamp: row.review_timestamp ?? undefined,
+      reviewedRevision: row.reviewed_revision ?? undefined,
+      reviewDecision: row.review_decision ?? undefined,
+      reviewNotes: row.review_notes ?? undefined,
+      classificationHash: row.classification_hash ?? undefined,
+      policyVersion: row.policy_version ?? undefined,
+      templateId: row.template_id ?? undefined,
       tags: tags.map((tag) => tag.tag)
     };
   }
@@ -1116,6 +1423,34 @@ export interface SqliteNoteRow {
   scope: string | null;
   content_hash: string | null;
   semantic_signature: string | null;
+  authority_risk: MetadataNoteRecord["authorityRisk"] | null | undefined;
+  review_state: MetadataNoteRecord["reviewState"] | null | undefined;
+  review_required: number | null | undefined;
+  promotion_eligible: number | null | undefined;
+  submitted_by_actor_id: string | null | undefined;
+  submitted_by_actor_role: MetadataNoteRecord["submittedByActorRole"] | null | undefined;
+  submitted_at: string | null | undefined;
+  reviewed_by_actor_id: string | null | undefined;
+  reviewed_by_actor_role: MetadataNoteRecord["reviewedByActorRole"] | null | undefined;
+  review_timestamp: string | null | undefined;
+  reviewed_revision: string | null | undefined;
+  review_decision: MetadataNoteRecord["reviewDecision"] | null | undefined;
+  review_notes: string | null | undefined;
+  classification_hash: string | null | undefined;
+  policy_version: string | null | undefined;
+  template_id: string | null | undefined;
+}
+
+interface SqliteNoteProvenanceRow {
+  note_id: string;
+  ordinal: number;
+  source_basis: NoteProvenanceRecord["sourceBasis"];
+  source_note_id: string | null;
+  source_note_path: string | null;
+  heading_path_json: string | null;
+  chunk_id: string | null;
+  excerpt: string | null;
+  recorded_at: string;
 }
 
 interface SqliteAuditRow {
@@ -1220,4 +1555,97 @@ function ensureColumnExists(
   }
 
   database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+}
+
+function assertImmutableGovernanceMetadata(
+  existing: MetadataNoteRecord | null,
+  next: MetadataNoteRecord
+): void {
+  if (!existing || !isGovernedDraftMetadata(existing)) {
+    return;
+  }
+
+  const violations: string[] = [];
+
+  if (existing.corpusId !== next.corpusId) {
+    violations.push("corpus");
+  }
+
+  if (existing.noteType !== next.noteType) {
+    violations.push("note type");
+  }
+
+  if ((existing.scope ?? "") !== (next.scope ?? "")) {
+    violations.push("scope");
+  }
+
+  if (existing.currentState !== next.currentState) {
+    violations.push("current-state intent");
+  }
+
+  if (next.authorityRisk && existing.authorityRisk && existing.authorityRisk !== next.authorityRisk) {
+    violations.push("authority risk");
+  }
+
+  if (
+    next.classificationHash &&
+    existing.classificationHash &&
+    existing.classificationHash !== next.classificationHash
+  ) {
+    violations.push("classification hash");
+  }
+
+  if (next.policyVersion && existing.policyVersion && existing.policyVersion !== next.policyVersion) {
+    violations.push("policy version");
+  }
+
+  if (next.templateId && existing.templateId && existing.templateId !== next.templateId) {
+    violations.push("template");
+  }
+
+  if (violations.length > 0) {
+    throw new Error(
+      `Immutable governance metadata cannot change after staging admission (${violations.join(", ")}).`
+    );
+  }
+}
+
+function assertImmutableDraftProvenance(
+  existingNote: MetadataNoteRecord | null,
+  existingProvenance: NoteProvenanceRecord[],
+  nextProvenance: NoteProvenanceRecord[]
+): void {
+  if (!existingNote || !isGovernedDraftMetadata(existingNote) || existingProvenance.length === 0) {
+    return;
+  }
+
+  if (!sameImmutableProvenance(existingProvenance, nextProvenance)) {
+    throw new Error(
+      "Immutable provenance for the admitted draft governance basis cannot be replaced."
+    );
+  }
+}
+
+function isGovernedDraftMetadata(note: MetadataNoteRecord): boolean {
+  return Boolean(note.classificationHash || note.submittedAt || note.reviewState);
+}
+
+function sameImmutableProvenance(
+  left: NoteProvenanceRecord[],
+  right: NoteProvenanceRecord[]
+): boolean {
+  return JSON.stringify(left.map(normalizeImmutableProvenanceEntry)) ===
+    JSON.stringify(right.map(normalizeImmutableProvenanceEntry));
+}
+
+function normalizeImmutableProvenanceEntry(entry: NoteProvenanceRecord) {
+  return {
+    ordinal: entry.ordinal,
+    sourceBasis: entry.sourceBasis,
+    sourceNoteId: entry.sourceNoteId ?? null,
+    sourceNotePath: entry.sourceNotePath ?? null,
+    headingPath: entry.headingPath ?? null,
+    chunkId: entry.chunkId ?? null,
+    excerpt: entry.excerpt ?? null
+  };
 }

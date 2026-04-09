@@ -18,6 +18,8 @@ export interface StagingDraftRecord {
 export interface StagingNoteRepository {
   createDraft(note: StagingDraftRecord): Promise<StagingDraftRecord>;
   updateDraft(note: StagingDraftRecord): Promise<StagingDraftRecord>;
+  archiveRejectedDraft(noteId: NoteId): Promise<StagingDraftRecord | null>;
+  archivePromotedDraft(noteId: NoteId): Promise<StagingDraftRecord | null>;
   getById(noteId: NoteId): Promise<StagingDraftRecord | null>;
   listByCorpus(corpusId: CorpusId): Promise<StagingDraftRecord[]>;
 }
