@@ -290,9 +290,9 @@ export class NoteIngressService {
       sourcePrompt: request.sourcePrompt,
       supportingSources: request.supportingSources,
       bodyHints: request.bodyHints,
-      scopeHint: request.frontmatterOverrides?.scope,
+      scopeHint: request.scopeHint ?? request.frontmatterOverrides?.scope,
       candidateSummary: request.candidateSummary,
-      currentStateIntent: request.frontmatterOverrides?.currentState,
+      currentStateIntent: request.currentStateIntent ?? request.frontmatterOverrides?.currentState,
       sourceBasis: request.sourceBasis
     });
   }

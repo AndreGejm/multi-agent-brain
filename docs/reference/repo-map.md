@@ -19,7 +19,7 @@ This map is based on tracked repository content. It intentionally separates trac
 | `docs/` | canonical docs plus planning/history docs |
 | `runtimes/` | vendored Python coding runtime |
 | `tests/` | end-to-end test suite |
-| `scripts/` | local helper utilities such as the Tkinter review client |
+| `scripts/` | local helper utilities, launch wrappers, and opt-in default-access installers |
 
 ## Major subsystems
 
@@ -33,6 +33,15 @@ This map is based on tracked repository content. It intentionally separates trac
 
 - `scripts/review-note-gui.py`
 - `integrations/obsidian/multi-agent-brain-review`
+
+### Default-access helpers
+
+- `scripts/launch-brain-cli.mjs`
+- `scripts/launch-brain-mcp.mjs`
+- `scripts/doctor-default-access.mjs`
+- `scripts/install-default-access.mjs`
+- `scripts/install-default-codex-mcp.mjs`
+- `scripts/install-multiagentbrain-launchers.mjs`
 
 ### Shared runtime layers
 
@@ -149,6 +158,13 @@ This map is based on tracked repository content. It intentionally separates trac
 - `docs/reference/*`
 - `docs/agents/ai-navigation-guide.md`
 
+High-value operational docs inside `docs/operations/` include:
+
+- `running.md`
+- `note-authoring.md`
+- `troubleshooting.md`
+- `docker-mcp-session.md`
+
 ### Historical/planning docs
 
 - `docs/planning/*`
@@ -162,7 +178,7 @@ The tracked repo currently has no:
 - Kubernetes manifests
 - Terraform
 - migration directory
-- tracked bootstrap or release automation scripts
+- tracked release automation scripts
 
 ## Local workspace residue note
 

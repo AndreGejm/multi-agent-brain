@@ -1,4 +1,5 @@
 export * from "./accept-note.tool.js";
+export * from "./capture-note.tool.js";
 export * from "./classify-note-ingress.tool.js";
 export * from "./execute-coding-task.tool.js";
 export * from "./search-context.tool.js";

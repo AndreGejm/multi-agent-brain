@@ -11,6 +11,7 @@ import type {
   LocalReasoningProvider,
   MetadataControlStore,
   NoteIngressService,
+  NoteCaptureService,
   NoteValidationService,
   PromotionOrchestratorService,
   ReviewOperatorService,
@@ -35,6 +36,7 @@ import {
   HierarchicalRetrievalService as ConcreteHierarchicalRetrievalService,
   NoteValidationService as ConcreteNoteValidationService,
   NoteIngressService as ConcreteNoteIngressService,
+  NoteCaptureService as ConcreteNoteCaptureService,
   PromotionOrchestratorService as ConcretePromotionOrchestratorService,
   ReviewOperatorService as ConcreteReviewOperatorService,
   RetrieveContextService as ConcreteRetrieveContextService,
@@ -99,6 +101,7 @@ export interface ServiceRegistry {
   auditHistoryService: AuditHistoryService;
   noteValidationService: NoteValidationService;
   noteIngressService: NoteIngressService;
+  noteCaptureService: NoteCaptureService;
   canonicalNoteService: CanonicalNoteService;
   stagingDraftService: StagingDraftService;
   draftReviewService: DraftReviewService;
@@ -202,6 +205,10 @@ export function buildServiceContainer(
     noteIngressService,
     draftingProvider
   );
+  const noteCaptureService = new ConcreteNoteCaptureService(
+    noteIngressService,
+    stagingDraftService
+  );
   const draftReviewService = new ConcreteDraftReviewService(
     stagingNoteRepository,
     metadataControlStore
@@ -287,6 +294,7 @@ export function buildServiceContainer(
       contextPacketService
     ),
     new BrainMemoryController(
+      noteCaptureService,
       stagingDraftService,
       draftReviewService,
       reviewOperatorService,
@@ -343,6 +351,7 @@ export function buildServiceContainer(
       auditHistoryService,
       noteValidationService,
       noteIngressService,
+      noteCaptureService,
       canonicalNoteService,
       stagingDraftService,
       draftReviewService,

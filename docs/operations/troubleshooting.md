@@ -34,6 +34,71 @@ What to do:
 - run workspace commands as `corepack pnpm ...` directly
 - example: `corepack pnpm install`, `corepack pnpm cli -- version`, `corepack pnpm test`
 
+## `multiagentbrain` or `mab` is not recognized
+
+Symptom:
+
+- Windows says `multiagentbrain` or `mab` is not recognized as a command
+
+Cause:
+
+- the launcher installer was not run
+- or the selected launcher directory is not on PATH
+
+What to do:
+
+- run `node scripts/install-default-access.mjs`
+- or run `node scripts/install-multiagentbrain-launchers.mjs` if you only want the launcher shims
+- if needed, rerun with `--bin-dir <path>` and choose a directory already on PATH
+- use `node scripts/install-default-access.mjs --dry-run` or `node scripts/install-multiagentbrain-launchers.mjs --dry-run` to confirm the target directory before writing
+- run `node scripts/doctor-default-access.mjs --json` to confirm whether the launcher bin directory is on PATH
+- fall back to `corepack pnpm cli -- <command>` from the repo root until the launcher is installed
+
+## Codex does not show the `multiagentbrain` MCP server
+
+Symptom:
+
+- Codex threads do not expose MultiAgentBrain by default
+
+Cause:
+
+- `%USERPROFILE%\\.codex\\config.toml` has not been updated
+- or the config entry points at a missing wrapper path
+
+What to do:
+
+- run `node scripts/install-default-access.mjs`
+- or run `node scripts/install-default-codex-mcp.mjs` if you only want the Codex config update
+- use `node scripts/install-default-access.mjs --dry-run` or `node scripts/install-default-codex-mcp.mjs --dry-run` to preview the config block first
+- confirm `scripts/launch-brain-mcp.mjs` exists in the repo
+- run `node scripts/doctor-default-access.mjs --json` to confirm the MCP block is now detectable
+- restart or reload the Codex session after updating the config
+
+## Detectability is inconsistent across workspaces
+
+Symptom:
+
+- one thread can use MultiAgentBrain by default, but another thread or workspace cannot find it
+
+Cause:
+
+- the machine-wide install contract is partial or stale
+- wrapper scripts exist, but PATH, Codex MCP config, or the fixed install manifest drifted
+
+What to do:
+
+- run `node scripts/doctor-default-access.mjs --json`
+- inspect `status`, `codexMcp`, `launchers`, and `manifest` in the JSON report
+- if the report is `degraded` or `unavailable`, run `node scripts/install-default-access.mjs`
+- re-run the doctor command after repair
+- if you only need the launcher command surface, `multiagentbrain doctor --json` hits the same report through the stable wrapper
+
+The doctor output is intended to be machine-readable. In practice:
+
+- `healthy` means the launcher, manifest, and Codex MCP entry are all aligned
+- `degraded` means some part of the default-access contract exists but is incomplete or stale
+- `unavailable` means the expected machine-wide access surface is not currently installed
+
 ## `docker compose -f docker/compose.mcp-session.yml config` fails immediately
 
 Symptom:
@@ -65,6 +130,7 @@ Cause:
 What to do:
 
 - set `MAB_VAULT_ROOT` explicitly for repo-local development
+- if a note was accepted successfully, inspect the returned `canonicalPath` first instead of assuming canonical storage is under the repo
 
 ## `GET /health/live` is degraded or `GET /health/ready` fails
 
@@ -129,8 +195,39 @@ Observed behavior:
 What to do:
 
 - if you want predictable no-model behavior, set `MAB_DRAFTING_PROVIDER=disabled`
+- if you already have good note content, prefer `capture-note` with an explicit `body` instead of depending on provider-generated draft text
 - if draft creation now fails with `validation_failed`, inspect required sections first; placeholder scaffolds no longer pass ingress validation
 - if you want model-backed drafting, configure the provider endpoint and model variables explicitly
+- for the supported end-to-end note workflow, use `docs/operations/note-authoring.md` instead of inferring the flow from isolated command behavior
+
+## `capture-note` does not stage a draft
+
+Observed behavior:
+
+- `capture-note` can return `staged: false`
+- the governed ingress decision may be `reject`, `session_only`, `rewrite_required`, or `merge_candidate`
+
+What to do:
+
+- inspect `classification.action` first
+- if the action is `rewrite_required`, add scope, stronger provenance, or a better body and retry
+- if the action is `merge_candidate`, inspect the merge hints instead of forcing another draft into staging
+- if the action is `session_only`, keep it out of durable memory or distill it into a more durable note
+- do not bypass `capture-note` just because the first attempt did not stage
+
+## The review queue is empty but there are markdown files under `vault/staging`
+
+Observed behavior:
+
+- `list-review-queue` is a governed queue, not a raw filesystem view
+- promoted, superseded, and rejected drafts are excluded by default
+
+What to do:
+
+- inspect the staging corpus folders for `_promoted` and `_rejected` history
+- call `list-review-queue --json "{\"includeRejected\":true}"` if you need rejected items in the queue response
+- remember that accepted notes move to canonical memory and may also archive the staging copy
+- remember that rejected notes are moved out of the active queue by design
 
 ## `promote_note` fails because a draft is not promotion-ready
 
@@ -142,10 +239,42 @@ Observed behavior:
 What to do:
 
 - if you are reviewing through a thin frontend, use `accept-note` instead of replaying the lower-level workflow yourself
-- run `classify-note-ingress` first if the candidate path is ambiguous
-- create the draft through `draft-note`
+- prefer `capture-note` when the caller wants the orchestrator to classify and stage the note in one step
+- run `classify-note-ingress` first only if the candidate path is ambiguous and you need the contract decision without staging
+- create the draft through `draft-note` only when you are deliberately using the lower-level draft surface
 - for high-risk drafts, mark it with `review-draft-note` using `approve_draft` first and `set_promotion_ready` second
 - retry `promote-note` only after the review step succeeds
+- if the caller is an ordinary workspace rather than a debugging session, prefer the flow in `docs/operations/note-authoring.md`
+
+## The Obsidian review plugin opens but cannot load the queue
+
+Common causes:
+
+- `Repo root` is unset or points at the wrong repo
+- `apps/brain-cli/dist/main.js` does not exist yet
+- the configured Node executable is missing
+
+What to do:
+
+- build the repo with `corepack pnpm build`
+- set the plugin `Repo root` to the repo that contains `apps/brain-cli/dist/main.js`
+- leave `Node executable` as `node` unless you need a custom path
+- if needed, set an absolute Node path in the plugin settings
+
+## The Tkinter reviewer opens but cannot load the queue
+
+Common causes:
+
+- `apps/brain-cli/dist/main.js` does not exist
+- `node` is not on PATH
+- `MAB_REVIEW_REPO_ROOT` points at the wrong repo
+
+What to do:
+
+- build the repo with `corepack pnpm build`
+- confirm `node` works in the same shell
+- set `MAB_REVIEW_REPO_ROOT` only if the script cannot infer the correct repo root
+- set `MAB_REVIEW_NODE_EXECUTABLE` if you need a custom Node path
 
 ## `promote_note` says the draft must be reviewed again for the latest revision
 

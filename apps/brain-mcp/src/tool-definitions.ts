@@ -182,6 +182,32 @@ export const MCP_TOOL_DEFINITIONS: ReadonlyArray<McpToolDefinition> = [
     }
   },
   {
+    name: "capture_note",
+    title: "Capture Note",
+    description: "Classify and stage a note candidate through the orchestrator in one step.",
+    defaultActorRole: "writer",
+    inputSchema: {
+      type: "object",
+      required: ["title", "sourcePrompt", "supportingSources"],
+      additionalProperties: true,
+      properties: {
+        actor: { type: "object" },
+        targetCorpus: { type: "string", enum: ["context_brain", "general_notes"] },
+        noteType: { type: "string" },
+        title: { type: "string" },
+        sourcePrompt: { type: "string" },
+        supportingSources: { type: "array", items: { type: "object" } },
+        frontmatterOverrides: { type: "object" },
+        body: { type: "string" },
+        bodyHints: { type: "array", items: { type: "string" } },
+        scopeHint: { type: "string" },
+        candidateSummary: { type: "string" },
+        currentStateIntent: { type: "boolean" },
+        sourceBasis: { type: "array", items: { type: "string" } }
+      }
+    }
+  },
+  {
     name: "list_review_queue",
     title: "List Review Queue",
     description: "List the active governed review queue for thin operator frontends.",

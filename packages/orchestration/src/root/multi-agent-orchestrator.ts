@@ -2,6 +2,7 @@ import type {
   AcceptNoteRequest,
   AssembleContextPacketRequest,
   AssembleContextPacketResponse,
+  CaptureNoteRequest,
   ClassifyNoteIngressRequest,
   ClassifyNoteIngressResponse,
   CreateSessionArchiveRequest,
@@ -61,6 +62,14 @@ export class MultiAgentOrchestrator {
     this.assertAuthorized("get_context_packet", request.actor);
     this.assertBrainRoute("get_context_packet");
     return this.brainController.getContextPacket(request);
+  }
+
+  async captureNote(
+    request: CaptureNoteRequest
+  ) {
+    this.assertAuthorized("capture_note", request.actor);
+    this.assertBrainRoute("capture_note");
+    return this.brainController.captureNote(request);
   }
 
   async draftNote(
@@ -190,6 +199,7 @@ export class MultiAgentOrchestrator {
       | "search_context"
       | "get_context_packet"
       | "fetch_decision_summary"
+      | "capture_note"
       | "classify_note_ingress"
       | "draft_note"
       | "review_draft_note"

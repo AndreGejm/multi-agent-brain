@@ -90,10 +90,63 @@ corepack pnpm install
 corepack pnpm build
 ```
 
-The root package scripts are the supported install and build entrypoints. There is no tracked bootstrap script in `scripts/`.
+The root package scripts are the supported install and build entrypoints.
+Tracked helper scripts in `scripts/` are optional operator and default-access
+tools, not a required bootstrap layer.
 
 If `corepack enable` cannot install a global `pnpm` shim on your machine, run the
 workspace commands as `corepack pnpm ...` directly.
+
+## Default access from other workspaces
+
+The repo now includes opt-in helpers to make MultiAgentBrain easier to discover
+outside this workspace on Windows:
+
+```bash
+node scripts/install-default-access.mjs
+```
+
+What that installer writes:
+
+- a `multiagentbrain` Codex MCP server entry in `%USERPROFILE%\\.codex\\config.toml`
+- `multiagentbrain.cmd` and `mab.cmd` launchers in `%APPDATA%\\npm` by default
+- a fixed install manifest at `%USERPROFILE%\\.multiagentbrain\\installation.json`
+
+Those helpers point at tracked wrapper scripts inside this repo:
+
+- `scripts/launch-brain-mcp.mjs`
+- `scripts/launch-brain-cli.mjs`
+- `scripts/doctor-default-access.mjs`
+
+They are opt-in. The repo does not auto-modify machine-wide configuration during
+normal install or build steps.
+
+To inspect detectability without mutating anything:
+
+```bash
+node scripts/doctor-default-access.mjs --json
+multiagentbrain doctor --json
+```
+
+### Cross-workspace note workflow
+
+Once MultiAgentBrain is detectable from another workspace, the supported
+note flow is:
+
+1. detect the runtime through a mounted MCP capability or `multiagentbrain doctor --json`
+2. submit durable candidates through `capture-note`
+3. inspect staged drafts through `list-review-queue` and `read-review-note`
+4. publish or discard through `accept-note` or `reject-note`
+
+Normal callers should not default to:
+
+- `classify-note-ingress` plus `draft-note` as the ordinary submission path
+- manual duplicate-search before every note proposal
+- direct staged markdown edits as a normal publishing step
+- frontend-driven `promote-note` button flows
+
+See `docs/operations/note-authoring.md` for the detailed request and response
+examples.
 
 ## Configuration model
 
@@ -152,6 +205,16 @@ Entrypoints:
 - HTTP API: `corepack pnpm api`
 - CLI: `corepack pnpm cli -- <command>`
 - MCP server: `corepack pnpm mcp`
+
+If the launcher installer has been run on Windows, the CLI fallback command is:
+
+- `multiagentbrain <command>`
+- `mab <command>`
+
+The launcher also exposes a machine-readable detection probe:
+
+- `multiagentbrain doctor --json`
+- `mab doctor --json`
 
 ### Review frontends
 
@@ -366,6 +429,7 @@ validation step, and MCP client snippet.
 - `read-context-node`
 - `get-context-packet`
 - `fetch-decision-summary`
+- `capture-note`
 - `classify-note-ingress`
 - `draft-note`
 - `review-draft-note`
@@ -381,15 +445,17 @@ validation step, and MCP client snippet.
 - `query-history`
 - `create-session-archive`
 
-`classify-note-ingress` is the governed preflight surface for note creation.
-It can now infer `noteType` and `targetCorpus` when a candidate carries clear
-signals, but those fields still remain explicit hints rather than client-held
-authority. `draft-note` now recomputes the same ingress contract server-side and
-rejects
-current-state-like drafts that only present session-synthesis evidence. Draft
-ingress now also persists structured source-basis and supporting-source
-provenance into SQLite for later review, plus duplicate identity hashes used to
-block exact and semantic duplicate drafts before they add staging clutter.
+`capture-note` is now the preferred orchestrator-first authoring surface for
+other workspaces. It classifies a candidate and, when admitted, stages the
+draft through the same governed write path in one call. Callers can provide an
+explicit markdown `body` so note quality does not depend on the local drafting
+provider. `classify-note-ingress` remains the preflight surface when a caller
+needs the contract decision without staging anything. `draft-note` now
+recomputes the same ingress contract server-side and rejects current-state-like
+drafts that only present session-synthesis evidence. Draft ingress now also
+persists structured source-basis and supporting-source provenance into SQLite
+for later review, plus duplicate identity hashes used to block exact and
+semantic duplicate drafts before they add staging clutter.
 Admitted drafts now also persist the governed normalized scope string and prefer
 the candidate summary over the raw source prompt when populating draft
 frontmatter, so stored metadata matches the ingress contract more closely.
@@ -398,9 +464,9 @@ information session residue can be downgraded to `session_only`, raw
 transcript-like captures are rejected outright, and vague high-risk candidates
 are forced through `rewrite_required` until they carry a specific scope and
 enough durable detail.
-Only `classify-note-ingress` gained that inference behavior in beta; `draft-note`
-still expects an explicit governed draft request and uses server-side
-reclassification to enforce the same policy contract.
+Only `classify-note-ingress` and `capture-note` gained that inference behavior
+in beta; `draft-note` still expects an explicit governed draft request and uses
+server-side reclassification to enforce the same policy contract.
 Once a draft is admitted, its governance identity is treated as immutable:
 runtime review and promotion now reject staged drafts whose note type, corpus,
 scope, current-state intent, or admitted governance basis drift after admission.
@@ -461,7 +527,7 @@ docker/        Dockerfile and local compose profile
 docs/          canonical docs plus planning/history docs
 runtimes/      vendored Python coding runtime
 tests/         end-to-end transport and service tests
-scripts/       local helper utilities, currently including the Tkinter review client
+scripts/       local helper utilities, launch wrappers, and review/default-access helpers
 ```
 
 Full map: `docs/reference/repo-map.md`
@@ -471,6 +537,7 @@ Full map: `docs/reference/repo-map.md`
 - `docs/setup/installation.md`
 - `docs/setup/configuration.md`
 - `docs/operations/running.md`
+- `docs/operations/note-authoring.md`
 - `docs/operations/docker-mcp-session.md`
 - `docs/architecture/overview.md`
 - `docs/architecture/runtime-flow.md`

@@ -178,6 +178,22 @@ export function validateTransportRequest(
         topic: requireString(payload.topic, "topic"),
         budget: validateBudget(payload.budget, "budget")
       };
+    case "capture-note":
+      return {
+        actor,
+        targetCorpus: optionalEnum(payload.targetCorpus, "targetCorpus", CORPORA),
+        noteType: optionalEnum(payload.noteType, "noteType", NOTE_TYPES),
+        title: requireString(payload.title, "title"),
+        sourcePrompt: requireString(payload.sourcePrompt, "sourcePrompt"),
+        supportingSources: validateSupportingSources(payload.supportingSources, "supportingSources"),
+        frontmatterOverrides: optionalFrontmatterOverrides(payload.frontmatterOverrides, "frontmatterOverrides"),
+        body: optionalString(payload.body, "body"),
+        bodyHints: optionalStringArray(payload.bodyHints, "bodyHints"),
+        scopeHint: optionalString(payload.scopeHint, "scopeHint"),
+        candidateSummary: optionalString(payload.candidateSummary, "candidateSummary"),
+        currentStateIntent: optionalBoolean(payload.currentStateIntent, "currentStateIntent"),
+        sourceBasis: optionalEnumArray(payload.sourceBasis, "sourceBasis", NOTE_SOURCE_BASES)
+      };
     case "classify-note-ingress":
       return {
         actor,
@@ -201,8 +217,11 @@ export function validateTransportRequest(
         sourcePrompt: requireString(payload.sourcePrompt, "sourcePrompt"),
         supportingSources: validateSupportingSources(payload.supportingSources, "supportingSources"),
         frontmatterOverrides: optionalFrontmatterOverrides(payload.frontmatterOverrides, "frontmatterOverrides"),
+        body: optionalString(payload.body, "body"),
         bodyHints: optionalStringArray(payload.bodyHints, "bodyHints"),
+        scopeHint: optionalString(payload.scopeHint, "scopeHint"),
         candidateSummary: optionalString(payload.candidateSummary, "candidateSummary"),
+        currentStateIntent: optionalBoolean(payload.currentStateIntent, "currentStateIntent"),
         sourceBasis: optionalEnumArray(payload.sourceBasis, "sourceBasis", NOTE_SOURCE_BASES),
         classification: optionalClassification(payload.classification, "classification")
       };

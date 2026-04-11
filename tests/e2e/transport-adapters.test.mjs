@@ -517,6 +517,62 @@ test("brain-cli drafts notes through the staging service with JSON input", async
   assert.match(payload.data.body, /CLI transport should remain thin/i);
 });
 
+test("brain-cli captures notes through the orchestrator in one step and preserves explicit bodies", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mab-cli-capture-"));
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const requestPath = path.join(root, "capture-note.json");
+  await writeFile(
+    requestPath,
+    JSON.stringify({
+      targetCorpus: "general_notes",
+      noteType: "reference",
+      title: "CLI orchestrator-first capture",
+      sourcePrompt: "Capture the one-step orchestrator note submission workflow for other workspaces.",
+      supportingSources: [],
+      sourceBasis: ["repo_inspection"],
+      scopeHint: "reference/orchestrator-first-capture",
+      candidateSummary: "Other workspaces should not chain low-level note ingress calls manually.",
+      body: [
+        "## Summary",
+        "",
+        "The CLI now exposes a one-step capture command that goes through the orchestrator.",
+        "",
+        "## Details",
+        "",
+        "Callers can submit explicit markdown body content and avoid patching staged drafts by hand.",
+        "",
+        "## Sources",
+        "",
+        "- repository inspection"
+      ].join("\n")
+    }),
+    "utf8"
+  );
+
+  const result = await runNodeCommand(
+    path.join(process.cwd(), "apps", "brain-cli", "dist", "main.js"),
+    ["capture-note", "--input", requestPath],
+    cliEnvironment(root)
+  );
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.classification.action, "draft_candidate");
+  assert.equal(payload.data.staged, true);
+  assert.equal(
+    payload.data.draft.frontmatter.scope,
+    "reference/orchestrator-first-capture"
+  );
+  assert.match(
+    payload.data.draft.body,
+    /one-step capture command that goes through the orchestrator/i
+  );
+});
+
 test("brain-cli surfaces duplicate-gate merge candidates when a draft matches existing staging content", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mab-cli-draft-duplicate-"));
   t.after(async () => {
@@ -1854,6 +1910,75 @@ test("brain-api exposes note ingress classification over HTTP", async (t) => {
   assert.equal(payload.action, "escalate");
   assert.equal(payload.authorityRisk, "critical");
   assert.equal(payload.reviewRequired, true);
+});
+
+test("brain-api captures notes through the orchestrator in one step", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mab-api-capture-note-"));
+  const { createBrainApiServer } = await import(
+    pathToFileURL(
+      path.join(process.cwd(), "apps", "brain-api", "dist", "server.js")
+    ).href
+  );
+
+  const api = createBrainApiServer({
+    nodeEnv: "test",
+    vaultRoot: path.join(root, "vault", "canonical"),
+    stagingRoot: path.join(root, "vault", "staging"),
+    sqlitePath: path.join(root, "state", "multi-agent-brain.sqlite"),
+    qdrantUrl: "http://127.0.0.1:6333",
+    qdrantCollection: `context_brain_chunks_${randomUUID().slice(0, 8)}`,
+    embeddingProvider: "hash",
+    reasoningProvider: "heuristic",
+    draftingProvider: "disabled",
+    rerankerProvider: "local",
+    apiHost: "127.0.0.1",
+    apiPort: 0,
+    logLevel: "error"
+  });
+
+  t.after(async () => {
+    await api.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  await api.listen();
+  const baseUrl = apiBaseUrl(api);
+
+  const response = await fetch(`${baseUrl}/v1/notes/capture`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      targetCorpus: "general_notes",
+      noteType: "reference",
+      title: "HTTP orchestrator-first capture",
+      sourcePrompt: "Capture the one-step orchestrator HTTP note submission workflow.",
+      supportingSources: [],
+      sourceBasis: ["repo_inspection"],
+      scopeHint: "reference/http-capture",
+      body: [
+        "## Summary",
+        "",
+        "The HTTP adapter exposes one-step orchestrator note capture.",
+        "",
+        "## Details",
+        "",
+        "Callers can submit explicit note bodies instead of patching staged markdown by hand.",
+        "",
+        "## Sources",
+        "",
+        "- repository inspection"
+      ].join("\n")
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.classification.action, "draft_candidate");
+  assert.equal(payload.data.staged, true);
+  assert.equal(payload.data.draft.frontmatter.scope, "reference/http-capture");
 });
 
 test("brain-api exposes direct context-packet assembly over HTTP", async (t) => {

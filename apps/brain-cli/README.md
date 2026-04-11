@@ -21,6 +21,7 @@ CLI adapter over the shared runtime container.
 - `read-context-node`
 - `get-context-packet`
 - `fetch-decision-summary`
+- `capture-note`
 - `classify-note-ingress`
 - `draft-note`
 - `review-draft-note`
@@ -50,6 +51,17 @@ corepack pnpm cli -- version
 corepack pnpm cli -- auth-status
 corepack pnpm cli -- list-review-queue --json "{}"
 ```
+
+Preferred note-authoring path for other workspaces:
+
+```bash
+corepack pnpm cli -- capture-note --input request.json
+```
+
+Use `capture-note` when the caller wants the orchestrator to classify and stage
+the note in one step. Use `classify-note-ingress` only when you need the
+governed classification result without creating a draft, and use `draft-note`
+only when you are deliberately working with the lower-level staging contract.
 
 ## Canonical docs
 

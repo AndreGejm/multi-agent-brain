@@ -34,6 +34,7 @@ Source of truth: `apps/brain-api/src/server.ts`
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| `POST` | `/v1/notes/capture` | classify and stage a note candidate through the orchestrator in one step |
 | `POST` | `/v1/notes/classify-ingress` | classify a note candidate against the governed ingress contract, including note-type-aware provenance checks |
 | `POST` | `/v1/notes/drafts` | create staging drafts; rejects placeholder-only required sections, persists structured provenance (including chunk-level refs), normalizes governed scope/summary metadata, blocks governed duplicate drafts, and rechecks ingress server-side |
 | `POST` | `/v1/notes/drafts/review` | record explicit review state, reviewed revision, and promotion eligibility for a staging draft |
@@ -74,6 +75,7 @@ Source of truth: `apps/brain-cli/src/main.ts`
 - `read-context-node`
 - `get-context-packet`
 - `fetch-decision-summary`
+- `capture-note`
 - `classify-note-ingress`
 - `draft-note`
 - `review-draft-note`
@@ -110,6 +112,24 @@ Commands with optional payload:
 
 From the workspace root, the verified invocation form is `corepack pnpm cli -- <command>`.
 
+### Preferred authoring workflow
+
+For ordinary note creation from another workspace:
+
+1. `capture-note`
+2. if `staged: true`, use `list-review-queue` and `read-review-note`
+3. finish through `accept-note` or `reject-note`
+
+Lower-level workflow for deliberate debugging:
+
+1. `classify-note-ingress`
+2. `draft-note`
+3. `review-draft-note`
+4. `promote-note`
+
+The lower-level sequence is still implemented, but it is not the preferred
+frontend contract.
+
 ## MCP
 
 Source of truth:
@@ -130,6 +150,7 @@ Source of truth:
 - `list_context_tree`
 - `read_context_node`
 - `get_context_packet`
+- `capture_note`
 - `classify_note_ingress`
 - `create_refresh_draft`
 - `create_refresh_drafts`
@@ -148,12 +169,15 @@ Source of truth:
 
 Current ingress contract nuance:
 
+- `capture-note` is the preferred authoring surface for other workspaces; it keeps classification and staging inside one orchestrator-owned call
 - `classify_note_ingress` is the authoritative preflight surface for note creation
 - `classify_note_ingress` may infer `noteType` and `targetCorpus` from strong candidate signals, but caller-provided values remain hints that the runtime can override or downgrade
+- `capture-note` can carry an explicit markdown `body`, so callers do not have to patch staged files when a drafting provider is unavailable
 - `draft_note` still reclassifies server-side and may return governed `session_only`, `rewrite_required`, `merge_candidate`, or `reject` outcomes even when a caller skips preflight
 - `draft_note` still requires an explicit governed draft request in beta; inference is limited to the classification surface so write semantics do not widen accidentally
 - low-information session residue and transcript-like captures are intentionally blocked from becoming durable staging drafts
 - thin review frontends should use `list_review_queue`, `read_review_note`, `accept_note`, and `reject_note` instead of stitching together low-level review and promotion commands themselves
+- `list_review_queue` is a governed queue view rather than a raw staging directory listing; by default it excludes promoted, superseded, and rejected drafts
 
 ## Internal integration surfaces
 

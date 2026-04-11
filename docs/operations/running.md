@@ -24,6 +24,9 @@ The API listens on `MAB_API_HOST:MAB_API_PORT` and prints the bound address on s
 ```bash
 corepack pnpm cli -- version
 corepack pnpm cli -- auth-status
+multiagentbrain version
+mab version
+multiagentbrain doctor --json
 ```
 
 Entrypoint file:
@@ -31,6 +34,77 @@ Entrypoint file:
 - `apps/brain-cli/src/main.ts`
 
 The CLI is JSON-in / JSON-out for command handlers that accept payloads.
+
+Preferred note-authoring command for other workspaces:
+
+```bash
+multiagentbrain capture-note --input request.json
+```
+
+That path keeps classification and staging inside one orchestrator-owned
+operation. Use `classify-note-ingress` and `draft-note` separately only when you
+are deliberately debugging or exercising the lower-level governed draft
+contract.
+
+For the full supported note workflow, including review and acceptance, see
+`docs/operations/note-authoring.md`.
+
+Stable launcher wrappers also exist in `scripts/`:
+
+- `scripts/launch-brain-cli.mjs`
+- `scripts/launch-brain-mcp.mjs`
+
+If you install the Windows launcher shims with
+`node scripts/install-default-access.mjs` or
+`node scripts/install-multiagentbrain-launchers.mjs`, the simplest fallback
+commands become:
+
+```bash
+multiagentbrain <command>
+mab <command>
+```
+
+For detection and repair automation, prefer:
+
+```bash
+multiagentbrain doctor --json
+node scripts/doctor-default-access.mjs --json
+```
+
+#### Common operator commands
+
+Capture a durable note candidate from another workspace:
+
+```bash
+multiagentbrain capture-note --input request.json
+```
+
+Inspect the active review queue:
+
+```bash
+multiagentbrain list-review-queue --json "{}"
+```
+
+Read one staged draft with review metadata:
+
+```bash
+multiagentbrain read-review-note --json "{\"draftNoteId\":\"<draft-note-id>\"}"
+```
+
+Accept a staged draft through the orchestrator-owned happy path:
+
+```bash
+multiagentbrain accept-note --json "{\"draftNoteId\":\"<draft-note-id>\"}"
+```
+
+Reject and archive a staged draft:
+
+```bash
+multiagentbrain reject-note --json "{\"draftNoteId\":\"<draft-note-id>\",\"reviewNotes\":\"<reason>\"}"
+```
+
+The queue is not a raw staging directory listing. It is a governed review view.
+By default it excludes promoted, superseded, and already rejected drafts.
 
 ### MCP server
 
@@ -47,6 +121,17 @@ This is a stdio MCP server that uses Content-Length framing.
 
 If `corepack enable` cannot install a global `pnpm` shim on your machine, keep
 using the `corepack pnpm ...` form shown above.
+
+For Codex on Windows, you can also install a default machine MCP entry with:
+
+```bash
+node scripts/install-default-access.mjs
+```
+
+That writes the `multiagentbrain` MCP server entry, installs the Windows
+launchers, and records the fixed install manifest. If you only want the MCP
+config mutation, `node scripts/install-default-codex-mcp.mjs` still exists as a
+narrower helper.
 
 ### Thin review frontends
 
@@ -82,6 +167,13 @@ Useful environment overrides:
 The script expects a built `brain-cli` and will fail fast if `apps/brain-cli/dist/main.js`
 or the configured Node executable cannot be found.
 
+UI behavior:
+
+- loads the active review queue on startup
+- lets the operator navigate with `Previous`, `Next`, and `Refresh`
+- reloads the queue after `Accept` or `Reject`
+- reports canonical or archived paths in the status text when the backend returns them
+
 This reviewer is documented and supported as a Windows-only local tool in the
 current repository state.
 
@@ -97,6 +189,12 @@ To use it locally:
 2. copy the plugin folder into your vault under `.obsidian/plugins/multi-agent-brain-review`
 3. enable it in Obsidian
 4. set `Repo root` in plugin settings
+
+Available UI entry points in Obsidian:
+
+- ribbon icon: `Open Multi-Agent-Brain review queue`
+- command palette: `Open Multi-Agent-Brain review queue`
+- command palette: `Refresh Multi-Agent-Brain review queue`
 
 The plugin is desktop-only and intentionally has no baked-in machine-specific
 repo path.

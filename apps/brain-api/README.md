@@ -31,6 +31,7 @@ HTTP adapter over the shared runtime container.
 
 ### Memory and governance
 
+- `POST /v1/notes/capture`
 - `POST /v1/notes/classify-ingress`
 - `POST /v1/notes/drafts`
 - `POST /v1/notes/drafts/review`
@@ -57,6 +58,15 @@ HTTP adapter over the shared runtime container.
 - delegates into the shared orchestrator or shared services
 - exposes liveness and readiness health reports
 - maps service/auth/validation failures to HTTP status codes
+
+Preferred note-authoring route for other workspaces:
+
+- `POST /v1/notes/capture`
+
+That route lets the orchestrator classify and stage the note in one request.
+Use `POST /v1/notes/classify-ingress` only when classification must be observed
+without staging, and keep `POST /v1/notes/drafts` for deliberate low-level
+draft contract work.
 
 ## Run
 

@@ -5,6 +5,7 @@ import type {
   ActorContext,
   ActorRole,
   AssembleContextPacketRequest,
+  CaptureNoteRequest,
   ClassifyNoteIngressRequest,
   CreateSessionArchiveRequest,
   CreateRefreshDraftBatchRequest,
@@ -46,6 +47,7 @@ type RouteName =
   | "search-context"
   | "get-context-packet"
   | "fetch-decision-summary"
+  | "capture-note"
   | "classify-note-ingress"
   | "draft-note"
   | "review-draft-note"
@@ -72,6 +74,7 @@ const DEFAULT_ACTOR_ROLE: Record<RouteName, ActorRole> = {
   "read-context-node": "retrieval",
   "get-context-packet": "retrieval",
   "fetch-decision-summary": "retrieval",
+  "capture-note": "writer",
   "classify-note-ingress": "writer",
   "draft-note": "writer",
   "review-draft-note": "operator",
@@ -104,6 +107,7 @@ const ROUTES: Record<string, { method: "GET" | "POST"; name?: RouteName; healthM
   "/v1/context/node": { method: "POST", name: "read-context-node" },
   "/v1/context/packet": { method: "POST", name: "get-context-packet" },
   "/v1/context/decision-summary": { method: "POST", name: "fetch-decision-summary" },
+  "/v1/notes/capture": { method: "POST", name: "capture-note" },
   "/v1/notes/classify-ingress": { method: "POST", name: "classify-note-ingress" },
   "/v1/notes/drafts": { method: "POST", name: "draft-note" },
   "/v1/notes/drafts/review": { method: "POST", name: "review-draft-note" },
@@ -442,6 +446,13 @@ async function handleRequest(
     case "fetch-decision-summary": {
       const result = await container.orchestrator.fetchDecisionSummary(
         normalizedRequest as unknown as GetDecisionSummaryRequest
+      );
+      sendJson(response, result.ok ? 200 : mapServiceErrorToStatus(result.error), result);
+      return;
+    }
+    case "capture-note": {
+      const result = await container.orchestrator.captureNote(
+        normalizedRequest as unknown as CaptureNoteRequest
       );
       sendJson(response, result.ok ? 200 : mapServiceErrorToStatus(result.error), result);
       return;

@@ -26,10 +26,49 @@ corepack pnpm install
 corepack pnpm build
 ```
 
-There is no tracked bootstrap script in `scripts/`; the root package scripts are the supported installation/build entrypoints.
+The root package scripts remain the supported installation/build entrypoints.
+Tracked helper scripts in `scripts/` are optional operator and default-access
+tools, not a required bootstrap layer.
 
 If `corepack enable` cannot install a global `pnpm` shim, run every workspace
 command as `corepack pnpm ...` directly.
+
+## Optional default-access installers
+
+If you want MultiAgentBrain to be easier to discover from other workspaces on
+this Windows machine, the repo now includes an opt-in unified installer:
+
+```bash
+node scripts/install-default-access.mjs
+```
+
+What they do:
+
+- `install-default-access.mjs`
+  - upserts a `multiagentbrain` MCP server in `%USERPROFILE%\\.codex\\config.toml`
+  - installs `multiagentbrain.cmd` and `mab.cmd`
+  - defaults launcher installation to `%APPDATA%\\npm`
+  - writes a fixed installation manifest to `%USERPROFILE%\\.multiagentbrain\\installation.json`
+  - prints a machine-readable detectability report after writing
+- `install-default-codex-mcp.mjs`
+  - upserts a `multiagentbrain` MCP server in `%USERPROFILE%\\.codex\\config.toml`
+  - points it at the tracked `scripts/launch-brain-mcp.mjs` wrapper
+- `install-multiagentbrain-launchers.mjs`
+  - installs `multiagentbrain.cmd` and `mab.cmd`
+  - defaults to `%APPDATA%\\npm`
+  - points both launchers at the tracked `scripts/launch-brain-cli.mjs` wrapper
+- `doctor-default-access.mjs`
+  - checks whether the wrappers, built entrypoints, Codex MCP config, launcher shims, PATH wiring, and fixed manifest are all present
+  - returns JSON with `healthy`, `degraded`, or `unavailable` status
+
+Preview without writing:
+
+```bash
+node scripts/install-default-access.mjs --dry-run
+node scripts/install-default-codex-mcp.mjs --dry-run
+node scripts/install-multiagentbrain-launchers.mjs --dry-run
+node scripts/doctor-default-access.mjs --json
+```
 
 ## Choose a configuration profile
 
@@ -105,9 +144,8 @@ python3 -m pytest runtimes/local_experts/tests/test_safety_gate.py -v # macOS/Li
 ## What is not installed by default
 
 - no `.env` loader
-- no global CLI wrapper beyond the workspace-local `brain-cli` / `brain-mcp` package bins
 - no tracked migration runner
-- no tracked local dev bootstrap helpers in `scripts/`
+- no automatic machine-wide installation; the default-access installers are opt-in
 
 ## Evidence status
 

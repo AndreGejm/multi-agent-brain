@@ -8,6 +8,7 @@ import type {
   ActorContext,
   ActorRole,
   AssembleContextPacketRequest,
+  CaptureNoteRequest,
   ClassifyNoteIngressRequest,
   CreateSessionArchiveRequest,
   CreateRefreshDraftBatchRequest,
@@ -57,6 +58,7 @@ type CommandName =
   | "read-context-node"
   | "get-context-packet"
   | "fetch-decision-summary"
+  | "capture-note"
   | "classify-note-ingress"
   | "draft-note"
   | "review-draft-note"
@@ -105,6 +107,7 @@ const COMMANDS: ReadonlyArray<CommandName> = [
   "read-context-node",
   "get-context-packet",
   "fetch-decision-summary",
+  "capture-note",
   "classify-note-ingress",
   "draft-note",
   "review-draft-note",
@@ -128,6 +131,7 @@ const DEFAULT_ACTOR_ROLE: Record<RoutedCommandName, ActorRole> = {
   "read-context-node": "retrieval",
   "get-context-packet": "retrieval",
   "fetch-decision-summary": "retrieval",
+  "capture-note": "writer",
   "classify-note-ingress": "writer",
   "draft-note": "writer",
   "review-draft-note": "operator",
@@ -164,6 +168,7 @@ const COMMAND_NAMES: ReadonlyArray<string> = [
   "read_context_node",
   "get_context_packet",
   "fetch_decision_summary",
+  "capture_note",
   "classify_note_ingress",
   "draft_note",
   "review_draft_note",
@@ -449,6 +454,10 @@ async function runCommand(
     case "fetch-decision-summary":
       return container.orchestrator.fetchDecisionSummary(
         request as unknown as GetDecisionSummaryRequest
+      );
+    case "capture-note":
+      return container.orchestrator.captureNote(
+        request as unknown as CaptureNoteRequest
       );
     case "classify-note-ingress":
       return container.orchestrator.classifyNoteIngress(
@@ -750,6 +759,7 @@ Commands:
   read-context-node  Read a namespace node through the shared context namespace service
   get-context-packet  Assemble a bounded packet directly from ranked candidates
   fetch-decision-summary  Retrieve a bounded decision-focused packet
+  capture-note     Classify and stage a note candidate through the orchestrator in one step
   classify-note-ingress  Classify a note candidate against the governed ingress contract
   draft-note       Create a staging draft through stagingDraftService
   review-draft-note  Record an explicit governed review decision for a staging draft
@@ -772,6 +782,7 @@ Notes:
   - freshness-status accepts optional JSON input with asOf, expiringWithinDays, corpusId, and limitPerCategory.
   - create-refresh-draft expects JSON input with noteId and optional asOf, expiringWithinDays, or bodyHints.
   - create-refresh-drafts accepts optional JSON input with asOf, expiringWithinDays, corpusId, limitPerCategory, maxDrafts, sourceStates, and bodyHints.
+  - capture-note expects JSON input with title, sourcePrompt, supportingSources, and optional targetCorpus, noteType, frontmatterOverrides, body, bodyHints, scopeHint, candidateSummary, currentStateIntent, or sourceBasis.
   - review-draft-note expects JSON input with draftNoteId, decision, and optional reviewNotes.
   - list-review-queue accepts optional JSON input with targetCorpus and includeRejected.
   - read-review-note expects JSON input with draftNoteId.

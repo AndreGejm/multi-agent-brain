@@ -1,4 +1,5 @@
 import type {
+  NoteCaptureService,
   ReviewOperatorService,
   AuditHistoryService,
   DraftReviewService,
@@ -11,6 +12,7 @@ import type {
 } from "@multi-agent-brain/application";
 import type {
   AcceptNoteRequest,
+  CaptureNoteRequest,
   CreateSessionArchiveRequest,
   ClassifyNoteIngressRequest,
   ClassifyNoteIngressResponse,
@@ -29,6 +31,7 @@ import type {
 
 export class BrainMemoryController {
   constructor(
+    private readonly noteCaptureService: NoteCaptureService,
     private readonly stagingDraftService: StagingDraftService,
     private readonly draftReviewService: DraftReviewService,
     private readonly reviewOperatorService: ReviewOperatorService,
@@ -39,6 +42,12 @@ export class BrainMemoryController {
     private readonly auditHistoryService: AuditHistoryService,
     private readonly temporalRefreshService: TemporalRefreshService
   ) {}
+
+  async captureNote(
+    request: CaptureNoteRequest
+  ) {
+    return this.noteCaptureService.capture(request);
+  }
 
   async draftNote(
     request: DraftNoteRequest

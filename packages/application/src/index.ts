@@ -21,6 +21,7 @@ export * from "./services/context-namespace-service.js";
 export * from "./services/context-representation-service.js";
 export * from "./services/context-packet-service.js";
 export * from "./services/decision-summary-service.js";
+export * from "./services/note-capture-service.js";
 export * from "./services/draft-governance-identity-service.js";
 export * from "./services/draft-review-service.js";
 export * from "./services/import-orchestration-service.js";

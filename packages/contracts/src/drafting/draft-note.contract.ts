@@ -17,8 +17,11 @@ export interface DraftNoteRequest {
   sourcePrompt: string;
   supportingSources: ProvenanceRef[];
   frontmatterOverrides?: Partial<NoteFrontmatter>;
+  body?: string;
   bodyHints?: string[];
+  scopeHint?: string;
   candidateSummary?: string;
+  currentStateIntent?: boolean;
   sourceBasis?: NoteSourceBasis[];
   classification?: {
     classificationHash: string;

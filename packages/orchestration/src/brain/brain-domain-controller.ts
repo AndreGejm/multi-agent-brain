@@ -3,6 +3,7 @@ import type {
   AcceptNoteRequest,
   AssembleContextPacketRequest,
   AssembleContextPacketResponse,
+  CaptureNoteRequest,
   ClassifyNoteIngressRequest,
   ClassifyNoteIngressResponse,
   CreateSessionArchiveRequest,
@@ -47,6 +48,12 @@ export class BrainDomainController {
     request: AssembleContextPacketRequest
   ): Promise<AssembleContextPacketResponse> {
     return this.retrievalController.getContextPacket(request);
+  }
+
+  async captureNote(
+    request: CaptureNoteRequest
+  ) {
+    return this.memoryController.captureNote(request);
   }
 
   async draftNote(

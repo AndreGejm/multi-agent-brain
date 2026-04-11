@@ -11,10 +11,22 @@ Read in this order:
 3. `docs/architecture/overview.md`
 4. `docs/architecture/invariants-and-boundaries.md`
 5. `docs/reference/interfaces.md`
-6. `docs/reference/env-vars.md`
-7. `CONTRIBUTING.md`
+6. `docs/operations/note-authoring.md` if the task touches note creation, review, or cross-workspace memory behavior
+7. `docs/reference/env-vars.md`
+8. `CONTRIBUTING.md`
 
 Then open the specific files for the task area.
+
+## Cross-workspace memory rule
+
+If your task is to store durable knowledge from another workspace:
+
+1. check for a mounted MultiAgentBrain capability first
+2. otherwise run `multiagentbrain doctor --json` or `mab doctor --json`
+3. use `capture-note` as the normal submission surface
+4. do not perform manual duplicate-search as a prerequisite
+5. if a draft is staged, review it through `list-review-queue`, `read-review-note`, `accept-note`, or `reject-note`
+6. do not treat `review-draft-note` plus `promote-note` as the normal workflow unless the task is explicitly low-level debugging
 
 ## Source-of-truth rules
 
@@ -64,6 +76,7 @@ Start with:
 - `packages/application/src/services/promotion-orchestrator-service.ts`
 - `packages/application/src/services/temporal-refresh-service.ts`
 - `packages/infrastructure/src/sqlite/sqlite-metadata-control-store.ts`
+- `docs/operations/note-authoring.md`
 
 ### Change retrieval behavior
 
@@ -93,6 +106,8 @@ Start with:
 - `scripts/review-note-gui.py`
 - `integrations/obsidian/multi-agent-brain-review/main.js`
 - `docs/reference/interfaces.md`
+- `docs/operations/note-authoring.md`
+- `docs/operations/running.md`
 
 ## Dangerous edit zones
 
@@ -110,6 +125,8 @@ Be especially careful in these files because they affect multiple runtime surfac
 - transports stay thin
 - canonical, staging, imported, session, and derived states stay distinct
 - retrieval stays bounded
+- cross-workspace note creation defaults to `capture-note`
+- thin review frontends use queue/read/accept/reject instead of local workflow macros
 - refresh flows create staging drafts instead of editing canonical notes directly
 - promotion remains replayable through the outbox path
 - missing Qdrant degrades vector behavior instead of always crashing the runtime
@@ -131,6 +148,7 @@ Read:
 - `README.md`
 - `docs/reference/repo-map.md`
 - `docs/reference/interfaces.md`
+- `docs/operations/note-authoring.md` if memory or review behavior is relevant
 - adapter READMEs in `apps/*/README.md`
 
 ### If the task is runtime behavior

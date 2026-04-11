@@ -298,6 +298,13 @@ export class StagingDraftService {
     request: DraftNoteRequest,
     draftNoteId: NoteId
   ): Promise<{ body: string; warnings: string[] }> {
+    if (request.body && request.body.trim().length > 0) {
+      return {
+        body: request.body,
+        warnings: []
+      };
+    }
+
     const fallbackBody = buildDraftBody(
       request.noteType,
       request.sourcePrompt,
@@ -377,7 +384,7 @@ function buildDraftFrontmatter(
     corpusId: request.targetCorpus,
     currentState: request.targetCorpus === "general_notes"
       ? false
-      : (request.frontmatterOverrides?.currentState ?? false),
+      : (request.currentStateIntent ?? request.frontmatterOverrides?.currentState ?? false),
     validFrom: request.frontmatterOverrides?.validFrom,
     validUntil: request.frontmatterOverrides?.validUntil,
     supersedes: request.frontmatterOverrides?.supersedes,

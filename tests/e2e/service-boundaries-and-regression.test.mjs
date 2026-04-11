@@ -155,6 +155,42 @@ test("note ingress rewrites vague high-risk candidates whose title and evidence 
   );
 });
 
+test("orchestrator-first note capture stages explicit note bodies without provider fallback", async (t) => {
+  const { container } = await createHarness(t);
+  const explicitBody = [
+    "## Summary",
+    "",
+    "Capture-note lets other workspaces submit durable notes through one orchestrator-owned request.",
+    "",
+    "## Details",
+    "",
+    "The request can carry explicit markdown body content, so callers do not need to patch staged files when a drafting provider is unavailable.",
+    "",
+    "## Sources",
+    "",
+    "- repository inspection"
+  ].join("\n");
+
+  const result = await container.services.noteCaptureService.capture({
+    actor: actor("writer"),
+    targetCorpus: "general_notes",
+    noteType: "reference",
+    title: "Orchestrator-first note capture",
+    sourcePrompt: "Store the orchestrator-first note capture flow for other workspaces.",
+    supportingSources: [],
+    body: explicitBody,
+    scopeHint: "reference/orchestrator-capture",
+    candidateSummary: "Other workspaces should stage notes through one orchestrator-owned capture call.",
+    sourceBasis: ["repo_inspection"]
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.classification.action, "draft_candidate");
+  assert.equal(result.data.staged, true);
+  assert.equal(result.data.draft.body, explicitBody);
+  assert.equal(result.data.draft.frontmatter.scope, "reference/orchestrator-capture");
+});
+
 test("high-risk drafts persist explicit review metadata and block promotion until reviewed", async (t) => {
   const { container } = await createHarness(t);
 

@@ -5,9 +5,10 @@ Thin local Obsidian review shell for the governed Multi-Agent-Brain note review 
 ## What It Does
 
 - lists the active review queue
-- reads one review note at a time
+- reads one review note at a time with body, warnings, and provenance
 - sends `Accept`
 - sends `Reject`
+- refreshes the queue after actions
 
 The plugin does **not**:
 
@@ -54,8 +55,21 @@ corepack pnpm build
 - click `Accept` or `Reject`
 - the backend performs the governed workflow
 
+What the status text can include:
+
+- accepted canonical path
+- rejected archived path
+- step summaries returned by the backend
+
+Available entry points:
+
+- ribbon icon: `Open Multi-Agent-Brain review queue`
+- command palette: `Open Multi-Agent-Brain review queue`
+- command palette: `Refresh Multi-Agent-Brain review queue`
+
 ## Notes
 
 - desktop-only
 - expects a built local `brain-cli`
 - intended to stay as thin as the Tkinter reviewer
+- the queue is governed, so promoted, superseded, and already rejected drafts are not part of the default active list

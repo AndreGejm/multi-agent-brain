@@ -5,6 +5,7 @@ import process from "node:process";
 import type {
   AcceptNoteRequest,
   ActorContext,
+  CaptureNoteRequest,
   ClassifyNoteIngressRequest,
   CreateSessionArchiveRequest,
   CreateRefreshDraftBatchRequest,
@@ -290,6 +291,10 @@ async function runTool(name: string, request: JsonRecord): Promise<unknown> {
     case "get_context_packet":
       return container.orchestrator.getContextPacket(
         request as unknown as GetContextPacketToolRequest
+      );
+    case "capture_note":
+      return container.orchestrator.captureNote(
+        request as unknown as CaptureNoteRequest
       );
     case "classify_note_ingress":
       return container.orchestrator.classifyNoteIngress(

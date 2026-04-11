@@ -20,6 +20,7 @@ stdio MCP adapter over the shared runtime container.
 - `list_context_tree`
 - `read_context_node`
 - `get_context_packet`
+- `capture_note`
 - `classify_note_ingress`
 - `create_refresh_draft`
 - `create_refresh_drafts`
@@ -42,6 +43,14 @@ stdio MCP adapter over the shared runtime container.
 - validates tool arguments through shared transport validation
 - injects MCP-scoped actor defaults
 - delegates into the shared orchestrator or shared services
+
+Preferred note-authoring tool for other workspaces:
+
+- `capture_note`
+
+Use `capture_note` when the agent wants the orchestrator to classify and stage
+the note in one step. Keep `classify_note_ingress` for inspection-only
+classification and `draft_note` for explicit low-level staging work.
 
 ## Run
 

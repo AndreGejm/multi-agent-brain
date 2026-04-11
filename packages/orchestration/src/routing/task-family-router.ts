@@ -2,6 +2,7 @@ export type BrainCommand =
   | "search_context"
   | "get_context_packet"
   | "fetch_decision_summary"
+  | "capture_note"
   | "classify_note_ingress"
   | "draft_note"
   | "review_draft_note"
@@ -50,6 +51,11 @@ const ROUTE_TABLE: Record<OrchestratorCommand, RoutedTask> = {
     command: "fetch_decision_summary",
     domain: "brain",
     family: "brain_context_packet"
+  },
+  capture_note: {
+    command: "capture_note",
+    domain: "brain",
+    family: "brain_memory_update"
   },
   classify_note_ingress: {
     command: "classify_note_ingress",
